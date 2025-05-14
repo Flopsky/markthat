@@ -30,22 +30,23 @@ pip install markthat
 from markthat import MarkThat
 
 # Initialize with your preferred model
-converter = MarkThat(primary_model="gemini-2.0-flash")
+converter = MarkThat(primary_model="gemini-2.0-flash", api_key="YOUR_API_KEY")
 
 # Convert an image to markdown
-markdown = converter.convert("path/to/image.jpg", max_retry = 4)
-print(markdown[0])
+markdown = converter.convert("path/to/image.jpg", max_retry=4)
+print(markdown)
 
 #convert a full pdf to markdown
-markdown = converter.convert("path/to/pdf.pdf", max_retry = 4)
+markdown = converter.convert("path/to/pdf.pdf", max_retry=4)
 for page in markdown:
     print(page)
 
 # Using with fallbacks when each model fails all their retries
 converter = MarkThat(
     primary_model="gpt-4.1",
-    max_etry = 4
-    fallback_models=["claude-sonnet", "mistral-medium"]
+    max_retry=4,
+    fallback_models=["claude-sonnet", "mistral-medium"],
+    api_key="YOUR_API_KEY"
 )
 markdown = converter.convert("path/to/complex_image.png")
 ```
@@ -66,18 +67,14 @@ converter = MarkThat(
     primary_model="gemini-2.0-flash",
     fallback_models=["gpt-4.1", "claude-sonnet"],
     retry_policy=policy,
-    api_keys={
-        "gemini": "YOUR_GEMINI_API_KEY",
-        "openai": "YOUR_OPENAI_API_KEY",
-        "anthropic": "YOUR_ANTHROPIC_API_KEY",
-        "mistral": "YOUR_MISTRAL_API_KEY"
-    }
+    api_key="YOUR_API_KEY"
 )
 
 # Convert with additional options
 markdown = converter.convert(
     "path/to/image.jpg",
-    format_options={"include_tables": True, "code_syntax_highlighting": True}
+    format_options={"include_tables": True, "code_syntax_highlighting": True},
+    additional_instructions="Please ensure all tables are well-formatted."
 )
 ```
 
