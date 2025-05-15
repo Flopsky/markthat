@@ -26,13 +26,13 @@ setup(
         "gemini": ["google-generativeai>=0.3.0"],
         "openai": ["openai>=1.0.0"],
         "anthropic": ["anthropic>=0.5.0"],
-        "mistral": ["mistralai>=0.0.1"],
+        "mistral": ["mistralai>=1.7.0"],
         "pdf": ["pymupdf>=1.20.0"],
         "all": [
             "google-generativeai>=0.3.0",
             "openai>=1.0.0",
             "anthropic>=0.5.0", 
-            "mistralai>=0.0.1",
+            "mistralai>=1.7.0",
             "pymupdf>=1.20.0"
         ]
     }

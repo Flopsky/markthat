@@ -407,32 +407,7 @@ class MarkThat:
                 logger.error(f"Failed to read image file: {str(e)}")
                 raise
     
-    def _validate_markdown(self, markdown: str) -> Tuple[bool, str]:
-        """
-        Validate the generated markdown for structure and markers.
-        
-        Args:
-            markdown: Generated markdown string
-            
-        Returns:
-            Tuple of (is_valid, validation_message)
-        """
-        # Skip validation if generation failed
-        if markdown == "Conversion failed with all models":
-            logger.error(f"Generation failed: {markdown}")
-            return False, "Generation failed"
-            
-        if not is_valid_markdown(markdown):
-            logger.error(f"Invalid markdown structure is_valid_markdown : {markdown}")
-            return False, "Invalid markdown structure"
-            
-        if not has_copy_markers(markdown):
-            logger.error(f"Missing required START/END COPY TEXT markers: {markdown}")
-            return False, "Missing required START/END COPY TEXT markers"
-            
-        return True, "Validation successful"
-    
-    def _convert_with_model(self, model_name: str, content: bytes, format_options: Optional[Dict[str, Any]] = None, additional_instructions: Optional[str] = None):
+    def _convert_with_model(self, model_name: str, content: bytes, format_options: Optional[Dict[str, Any]] = None, additional_instructions: Optional[str] = None, description_mode: bool = False):
         """
         Try to convert content using the specified model with retries.
         
@@ -441,11 +416,12 @@ class MarkThat:
             content: File content bytes
             format_options: Options for formatting the output
             additional_instructions: Additional instructions for the prompt
+            description_mode: If True, generate a description instead of markdown
             
         Returns:
             Markdown string or None if all attempts fail
         """
-        logger.info(f"Attempting conversion with model: {model_name}")
+        logger.info(f"Attempting conversion with model: {model_name} (Description mode: {description_mode})")
         if format_options:
             logger.debug(f"Format options: {format_options}")
         if additional_instructions:
@@ -472,7 +448,8 @@ class MarkThat:
             prompts = get_prompt_for_model(
                 model_name, 
                 format_options=format_options,
-                additional_instructions=enhanced_instructions
+                additional_instructions=enhanced_instructions,
+                description_mode=description_mode
             )
             system_prompt = prompts["system_prompt"]
             user_prompt = prompts["user_prompt"]
@@ -503,12 +480,12 @@ class MarkThat:
                     result = response.text
                     
                     # Validate the result
-                    is_valid, validation_msg = self._validate_markdown(result)
+                    is_valid, validation_msg = self.validate_markdown(result, description_mode=description_mode)
                     if not is_valid:
-                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        logger.warning(f"Generated output validation failed: {validation_msg}")
                         # If it's missing markers but otherwise valid, we'll add them
-                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
-                            logger.info("Adding missing markers to otherwise valid markdown")
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and (description_mode or is_valid_markdown(result)):
+                            logger.info("Adding missing markers to otherwise valid output")
                             result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
                             is_valid = True
                     
@@ -516,8 +493,8 @@ class MarkThat:
                         logger.info(f"Gemini generation successful")
                         return result
                     else:
-                        error_msg = f"Generated markdown validation failed: {validation_msg}"
-                        logger.error(f"Invalid markdown generated, will retry")
+                        error_msg = f"Generated output validation failed: {validation_msg}"
+                        logger.error(f"Invalid output generated, will retry")
                         # Track this failure
                         failure_tracker.add_failure(
                             attempt_number=attempt+1,
@@ -543,12 +520,12 @@ class MarkThat:
                     result = response.choices[0].message.content
                     
                     # Validate the result
-                    is_valid, validation_msg = self._validate_markdown(result)
+                    is_valid, validation_msg = self.validate_markdown(result, description_mode=description_mode)
                     if not is_valid:
-                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        logger.warning(f"Generated output validation failed: {validation_msg}")
                         # If it's missing markers but otherwise valid, we'll add them
-                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
-                            logger.info("Adding missing markers to otherwise valid markdown")
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and (description_mode or is_valid_markdown(result)):
+                            logger.info("Adding missing markers to otherwise valid output")
                             result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
                             is_valid = True
                     
@@ -556,8 +533,8 @@ class MarkThat:
                         logger.info(f"OpenAI generation successful")
                         return result
                     else:
-                        error_msg = f"Generated markdown validation failed: {validation_msg}"
-                        logger.error(f"Invalid markdown generated, will retry")
+                        error_msg = f"Generated output validation failed: {validation_msg}"
+                        logger.error(f"Invalid output generated, will retry")
                         # Track this failure
                         failure_tracker.add_failure(
                             attempt_number=attempt+1,
@@ -584,12 +561,12 @@ class MarkThat:
                     result = response.content[0].text
                     
                     # Validate the result
-                    is_valid, validation_msg = self._validate_markdown(result)
+                    is_valid, validation_msg = self.validate_markdown(result, description_mode=description_mode)
                     if not is_valid:
-                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        logger.warning(f"Generated output validation failed: {validation_msg}")
                         # If it's missing markers but otherwise valid, we'll add them
-                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
-                            logger.info("Adding missing markers to otherwise valid markdown")
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and (description_mode or is_valid_markdown(result)):
+                            logger.info("Adding missing markers to otherwise valid output")
                             result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
                             is_valid = True
                     
@@ -597,8 +574,8 @@ class MarkThat:
                         logger.info(f"Claude generation successful")
                         return result
                     else:
-                        error_msg = f"Generated markdown validation failed: {validation_msg}"
-                        logger.error(f"Invalid markdown generated, will retry")
+                        error_msg = f"Generated output validation failed: {validation_msg}"
+                        logger.error(f"Invalid output generated, will retry")
                         # Track this failure
                         failure_tracker.add_failure(
                             attempt_number=attempt+1,
@@ -609,24 +586,46 @@ class MarkThat:
                         raise ValueError(error_msg)
                 
                 elif "mistral" in model_name.lower():
-                    logger.debug("Using Mistral API")
-                    response = client.chat(
-                        model=model_name,
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"{user_prompt}\n\n[Image: data:image/jpeg;base64,{base64_image}]"}
-                        ]
+                    logger.debug("Using Mistral API (new)")
+                    # Removed check for ChatMessage is None
+                    # if ChatMessage is None: # Check if import failed, though setup.py should handle install
+                    #     raise ImportError("Mistral\'s ChatMessage could not be imported. Ensure mistralai package is installed correctly.")
+
+                    # Prepare messages for Mistral API v1.x
+                    # System prompt can be a simple string
+                    # User prompt combines text and image data
+                    user_content_list = [
+                        {"type": "text", "text": user_prompt},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                        }
+                    ]
+                    
+                    messages_payload = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_content_list}
+                    ]
+                    
+                    # Ensure the model is vision-capable, e.g., "mistral-large-latest"
+                    # The user is responsible for providing a correct model_name.
+                    # Forcing a specific model here might be too restrictive.
+                    # model_to_call = "mistral-large-latest" if "large" not in model_name else model_name
+
+                    response = client.chat.complete( # Changed from client.chat
+                        model=model_name, # Use the provided model_name
+                        messages=messages_payload
                     )
                     
                     result = response.choices[0].message.content
                     
                     # Validate the result
-                    is_valid, validation_msg = self._validate_markdown(result)
+                    is_valid, validation_msg = self.validate_markdown(result, description_mode=description_mode)
                     if not is_valid:
-                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        logger.warning(f"Generated output validation failed: {validation_msg}")
                         # If it's missing markers but otherwise valid, we'll add them
-                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
-                            logger.info("Adding missing markers to otherwise valid markdown")
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and (description_mode or is_valid_markdown(result)):
+                            logger.info("Adding missing markers to otherwise valid output")
                             result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
                             is_valid = True
                     
@@ -634,8 +633,8 @@ class MarkThat:
                         logger.info(f"Mistral generation successful")
                         return result
                     else:
-                        error_msg = f"Generated markdown validation failed: {validation_msg}"
-                        logger.error(f"Invalid markdown generated, will retry")
+                        error_msg = f"Generated output validation failed: {validation_msg}"
+                        logger.error(f"Invalid output generated, will retry")
                         # Track this failure
                         failure_tracker.add_failure(
                             attempt_number=attempt+1,
@@ -691,10 +690,11 @@ class MarkThat:
         format_options: Optional[Dict[str, Any]] = None,
         max_retry: Optional[int] = None,
         additional_instructions: Optional[str] = None,
-        clean_output: bool = True
-    ) -> Union[str, List[str]]:
+        clean_output: bool = True,
+        description_mode: bool = False
+    ) -> List[str]:
         """
-        Convert an image or PDF to markdown.
+        Convert an image or PDF to markdown, or describe it.
         
         Args:
             file_path: Path to the image or PDF file
@@ -702,12 +702,13 @@ class MarkThat:
             max_retry: Override the default max retries
             additional_instructions: Additional instructions for the prompt
             clean_output: If True, removes markdown fences and START/END COPY TEXT markers
+            description_mode: If True, generate a description instead of markdown
             
         Returns:
-            For a single image: markdown string
-            For a PDF: list of markdown strings, one per page
+            For a single image: markdown string or description string
+            For a PDF: list of markdown strings or description strings, one per page
         """
-        logger.info(f"Starting conversion of {file_path}")
+        logger.info(f"Starting conversion of {file_path} (Description mode: {description_mode})")
         
         if max_retry is not None:
             self.retry_policy.max_attempts = max_retry
@@ -727,6 +728,7 @@ class MarkThat:
                 content, 
                 format_options=format_options,
                 additional_instructions=additional_instructions,
+                description_mode=description_mode
             )
             
             # If primary model failed and we have fallbacks
@@ -739,6 +741,7 @@ class MarkThat:
                         content, 
                         format_options=format_options,
                         additional_instructions=additional_instructions,
+                        description_mode=description_mode
                     )
                     if result:
                         logger.info(f"Fallback model {fallback_model} succeeded")
@@ -765,7 +768,7 @@ class MarkThat:
         
         # Return single result for images, list for PDFs
         logger.info(f"Conversion complete, returning {len(results)} results")
-        return results if len(results) > 1 else results[0]
+        return results
     
     def get_clean_markdown(self, markdown: str) -> str:
         """
@@ -791,14 +794,28 @@ class MarkThat:
         """
         return remove_markdown_and_markers(markdown)
     
-    def validate_markdown(self, markdown: str) -> Tuple[bool, str]:
+    def validate_markdown(self, markdown: str, description_mode: bool = False) -> Tuple[bool, str]:
         """
-        Validate the markdown for structure and required markers.
+        Validate the generated markdown (or description) for structure and markers.
         
         Args:
-            markdown: The markdown string to validate
+            markdown: Generated markdown string or description
             
         Returns:
             Tuple of (is_valid, validation_message)
         """
-        return self._validate_markdown(markdown)
+        # Skip validation if generation failed
+        if markdown == "Conversion failed with all models":
+            logger.error(f"Generation failed: {markdown}")
+            return False, "Generation failed"
+            
+        if not is_valid_markdown(markdown):
+            logger.error(f"Invalid markdown structure is_valid_markdown : {markdown}")
+            return False, "Invalid markdown structure"
+            
+        # Marker validation (applies to both modes)
+        if not has_copy_markers(markdown):
+            logger.error(f"Missing required START/END COPY TEXT markers: {markdown}")
+            return False, "Missing required START/END COPY TEXT markers"
+            
+        return True, "Validation successful"

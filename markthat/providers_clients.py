@@ -79,15 +79,15 @@ class MistralClient(ProviderClient):
     
     def _initialize_client(self):
         try:
-            from mistralai.client import MistralClient as MistralSDK
+            from mistralai import Mistral
             
             api_key = self.api_key or os.environ.get("MISTRAL_API_KEY")
             if not api_key:
                 raise ValueError("Mistral API key is required")
             
-            self._client = MistralSDK(api_key=api_key)
+            self._client = Mistral(api_key=api_key)
         except ImportError:
-            raise ImportError("Please install the required package: pip install mistralai")
+            raise ImportError("Please install the required package: pip install mistralai>=1.7.0")
 
 
 class ProviderClientFactory:
