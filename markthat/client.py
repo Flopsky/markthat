@@ -203,6 +203,62 @@ class RetryPolicy:
         self.backoff_factor = backoff_factor
 
 
+class FailureTracker:
+    """Tracks failures and generates feedback for prompts."""
+    
+    def __init__(self):
+        self.failures = []
+        
+    def add_failure(self, attempt_number: int, error_type: str, error_message: str, model_output: Optional[str] = None):
+        """
+        Add a failed attempt with error information.
+        
+        Args:
+            attempt_number: The attempt number that failed
+            error_type: Type of error (validation, API, etc.)
+            error_message: Error message describing the failure
+            model_output: The model's output that caused the failure (if any)
+        """
+        failure_info = {
+            "attempt": attempt_number,
+            "error_type": error_type,
+            "error_message": error_message,
+            "output_snippet": model_output[:200] + "..." if model_output and len(model_output) > 200 else model_output
+        }
+        self.failures.append(failure_info)
+        logger.info(f"Added failure #{attempt_number}: {error_type} - {error_message}")
+    
+    def get_feedback_for_prompt(self) -> str:
+        """
+        Generate feedback text to append to the prompt for the next attempt.
+        
+        Returns:
+            Formatted feedback text
+        """
+        if not self.failures:
+            return ""
+            
+        feedback_lines = ["Previous attempts failed for the following reasons:"]
+        
+        for failure in self.failures:
+            attempt = failure["attempt"]
+            error_type = failure["error_type"]
+            message = failure["error_message"]
+            snippet = failure["output_snippet"]
+            
+            feedback_lines.append(f"- Attempt #{attempt}: {error_type} error - {message}")
+            if snippet:
+                feedback_lines.append(f"  Output sample: \"{snippet}\"")
+        
+        feedback_lines.append("\nPlease avoid these issues in your response.")
+        
+        return "\n".join(feedback_lines)
+    
+    def clear(self):
+        """Clear all tracked failures."""
+        self.failures = []
+
+
 class MarkThat:
     """Main class for converting images to markdown using multimodal LLMs."""
     
@@ -397,23 +453,35 @@ class MarkThat:
         
         client = get_client(model_name, self.api_key)
         
-        # Get prompts for this model
-        prompts = get_prompt_for_model(
-            model_name, 
-            format_options=format_options,
-            additional_instructions=additional_instructions
-        )
-        system_prompt = prompts["system_prompt"]
-        user_prompt = prompts["user_prompt"]
-        
-        logger.debug(f"System prompt length: {len(system_prompt)} characters")
-        logger.debug(f"User prompt length: {len(user_prompt)} characters")
-        
-        # Encode the image as base64 for APIs that need it
-        base64_image = base64.b64encode(content).decode('utf-8')
+        # Create a failure tracker for this conversion
+        failure_tracker = FailureTracker()
         
         for attempt in range(self.retry_policy.max_attempts):
             logger.info(f"Attempt {attempt+1}/{self.retry_policy.max_attempts} with {model_name}")
+            
+            # Get prompts for this model, including feedback from previous failures
+            failure_feedback = failure_tracker.get_feedback_for_prompt()
+            enhanced_instructions = additional_instructions or ""
+            if failure_feedback and attempt > 0:  # Only add failure feedback after first attempt
+                if enhanced_instructions:
+                    enhanced_instructions = f"{enhanced_instructions}\n\n{failure_feedback}"
+                else:
+                    enhanced_instructions = failure_feedback
+                logger.info(f"Added failure feedback to prompt for attempt {attempt+1}")
+            
+            prompts = get_prompt_for_model(
+                model_name, 
+                format_options=format_options,
+                additional_instructions=enhanced_instructions
+            )
+            system_prompt = prompts["system_prompt"]
+            user_prompt = prompts["user_prompt"]
+            
+            logger.debug(f"System prompt length: {len(system_prompt)} characters")
+            logger.debug(f"User prompt length: {len(user_prompt)} characters")
+            
+            # Encode the image as base64 for APIs that need it
+            base64_image = base64.b64encode(content).decode('utf-8')
             
             try:
                 # Handle different client APIs
@@ -448,8 +516,16 @@ class MarkThat:
                         logger.info(f"Gemini generation successful")
                         return result
                     else:
+                        error_msg = f"Generated markdown validation failed: {validation_msg}"
                         logger.error(f"Invalid markdown generated, will retry")
-                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
+                        # Track this failure
+                        failure_tracker.add_failure(
+                            attempt_number=attempt+1,
+                            error_type="Validation",
+                            error_message=validation_msg,
+                            model_output=result
+                        )
+                        raise ValueError(error_msg)
                 
                 elif "gpt" in model_name.lower():
                     logger.debug("Using OpenAI API")
@@ -480,8 +556,16 @@ class MarkThat:
                         logger.info(f"OpenAI generation successful")
                         return result
                     else:
+                        error_msg = f"Generated markdown validation failed: {validation_msg}"
                         logger.error(f"Invalid markdown generated, will retry")
-                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
+                        # Track this failure
+                        failure_tracker.add_failure(
+                            attempt_number=attempt+1,
+                            error_type="Validation",
+                            error_message=validation_msg,
+                            model_output=result
+                        )
+                        raise ValueError(error_msg)
                 
                 elif "claude" in model_name.lower():
                     logger.debug("Using Anthropic API")
@@ -513,8 +597,16 @@ class MarkThat:
                         logger.info(f"Claude generation successful")
                         return result
                     else:
+                        error_msg = f"Generated markdown validation failed: {validation_msg}"
                         logger.error(f"Invalid markdown generated, will retry")
-                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
+                        # Track this failure
+                        failure_tracker.add_failure(
+                            attempt_number=attempt+1,
+                            error_type="Validation",
+                            error_message=validation_msg,
+                            model_output=result
+                        )
+                        raise ValueError(error_msg)
                 
                 elif "mistral" in model_name.lower():
                     logger.debug("Using Mistral API")
@@ -542,8 +634,16 @@ class MarkThat:
                         logger.info(f"Mistral generation successful")
                         return result
                     else:
+                        error_msg = f"Generated markdown validation failed: {validation_msg}"
                         logger.error(f"Invalid markdown generated, will retry")
-                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
+                        # Track this failure
+                        failure_tracker.add_failure(
+                            attempt_number=attempt+1,
+                            error_type="Validation",
+                            error_message=validation_msg,
+                            model_output=result
+                        )
+                        raise ValueError(error_msg)
                 
                 else:
                     error_msg = f"Unsupported model: {model_name}"
@@ -554,13 +654,27 @@ class MarkThat:
                 logger.error(f"Attempt {attempt+1} with {model_name} failed: {str(e)}")
                 logger.error(f"Error type: {type(e).__name__}")
                 
-                # For detailed debugging
+                # Track the failure with appropriate information
+                error_type = type(e).__name__
+                error_message = str(e)
+                model_output = None
+                
+                # Try to extract error details if available
                 if hasattr(e, 'response'):
                     try:
                         error_details = e.response.json()
+                        error_message = f"{error_message} - API Error: {error_details}"
                         logger.error(f"API error details: {error_details}")
                     except:
                         pass
+                
+                # Add failure to tracker
+                failure_tracker.add_failure(
+                    attempt_number=attempt+1,
+                    error_type=error_type,
+                    error_message=error_message,
+                    model_output=model_output
+                )
                 
                 if attempt < self.retry_policy.max_attempts - 1:
                     # Exponential backoff
