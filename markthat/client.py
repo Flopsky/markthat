@@ -11,6 +11,12 @@ from .providers_clients import get_client
 from .prompts import get_prompt_for_model
 import logging
 import base64
+import io
+
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    pass  # Will raise appropriate error later when used
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -247,7 +253,60 @@ class MarkThat:
             self._fallback_clients[model_name] = get_client(model_name, self.api_key)
         return self._fallback_clients[model_name]
     
-    def _process_file(self, file_path: str) -> List[Any]:
+    def _convert_page_to_image(self, page) -> bytes:
+        """
+        Convert a PyMuPDF Page object to a JPEG image in bytes.
+        
+        Args:
+            page: PyMuPDF Page object
+        
+        Returns:
+            JPEG image as bytes
+        """
+        try:
+            # Render the page to a pixmap
+            zoom = 2.0  # Higher resolution
+            # Create transformation matrix for zoom
+            # For compatibility with different PyMuPDF versions
+            try:
+                # Newer API attempt
+                matrix = page.rotation_matrix @ page.scale_matrix(zoom, zoom)
+                mat = page.get_pixmap(matrix=matrix)
+            except AttributeError:
+                # Fallback for older PyMuPDF versions
+                logger.info("Using fallback method for older PyMuPDF version")
+                mat = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
+            except Exception as e:
+                # Last resort fallback
+                logger.warning(f"Using basic pixmap rendering due to: {str(e)}")
+                mat = page.get_pixmap(dpi=150)  # Use DPI instead of matrix
+            
+            # Convert pixmap to JPEG bytes using BytesIO to handle different PyMuPDF versions
+            buffer = io.BytesIO()
+            try:
+                # Try the direct tobytes method first
+                img_bytes = mat.tobytes("jpeg")
+                logger.debug("Used tobytes method for image conversion")
+            except (AttributeError, TypeError):
+                # Fallback to pil_save method if available
+                logger.info("Using PIL fallback for image conversion")
+                try:
+                    mat.pil_save(buffer, format="JPEG")
+                    img_bytes = buffer.getvalue()
+                except AttributeError:
+                    # Last resort: convert to PIL image manually and save
+                    from PIL import Image
+                    img = Image.frombytes("RGB", [mat.width, mat.height], mat.samples)
+                    img.save(buffer, format="JPEG")
+                    img_bytes = buffer.getvalue()
+            
+            logger.info(f"Converted PDF page to JPEG image, size: {len(img_bytes)} bytes")
+            return img_bytes
+        except Exception as e:
+            logger.error(f"Error converting PDF page to image: {str(e)}")
+            raise
+    
+    def _process_file(self, file_path: str) -> List[bytes]:
         """
         Process a file based on its type.
         
@@ -255,19 +314,26 @@ class MarkThat:
             file_path: Path to the file
             
         Returns:
-            List of file contents (for PDFs, each page; for images, just one item)
+            List of image content as bytes (for PDFs, one item per page; for images, just one item)
         """
         logger.info(f"Processing file: {file_path}")
         
         # Simple check based on file extension
         if file_path.lower().endswith('.pdf'):
             try:
-                import fitz  # PyMuPDF
-                
                 doc = fitz.open(file_path)
                 page_count = len(doc)
                 logger.info(f"PDF loaded successfully with {page_count} pages")
-                return [page for page in doc]
+                
+                # Convert each page to an image
+                image_bytes_list = []
+                for i, page in enumerate(doc):
+                    logger.info(f"Converting PDF page {i+1}/{page_count} to image")
+                    page_image = self._convert_page_to_image(page)
+                    image_bytes_list.append(page_image)
+                
+                return image_bytes_list
+                
             except ImportError:
                 logger.error("PDF support requires PyMuPDF. Install with: pip install pymupdf")
                 raise ImportError("PDF support requires PyMuPDF. Install with: pip install pymupdf")
