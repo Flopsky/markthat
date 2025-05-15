@@ -19,9 +19,27 @@ Additional formatting requirements:
 {% endfor %}
 {% endif %}
 
-The output should be clean, valid Markdown that could be rendered in any Markdown viewer.
+IMPORTANT: after opening the markdown block, you MUST enclose the reproduction of the image within [START COPY TEXT] and [END COPY TEXT] markers, exactly like this:
+
 ```markdown
 [START COPY TEXT]
 Your reproduction of the image here.
 [END COPY TEXT]
 ```
+
+Exemple of a valid output:
+
+```markdown
+[START COPY TEXT]<-- should be in the markdown block NOT OUTSIDE
+# Title
+
+## Subtitle
+
+Hello world
+[END COPY TEXT]<-- should be in the markdown block NOT OUTSIDE
+```
+
+
+These markers are required and must appear exactly as shown, at the beginning and end of your output.
+
+The output should be clean, valid Markdown that could be rendered in any Markdown viewer.

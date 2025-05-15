@@ -80,8 +80,9 @@ markdown = converter.convert(
 
 ## TODO 
 
-- [ ] Init the first feature: convert images to markdown with only images
+- [x] Init the first feature: convert images to markdown with only images
 - [ ] Add support for pdfs
+- [ ] Add retry mechanism to detect when the model is looping on a value
 - [ ] Add supprot for fallback on other models (include litellm ?)
 - [ ] Add support for custom retry policies
 - [ ] Add support for more models

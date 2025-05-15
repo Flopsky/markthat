@@ -3,9 +3,10 @@ Main client module for MarkThat.
 This module provides the MarkThat class which serves as the main entry point for image to markdown conversion.
 """
 
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Any, Union, Tuple
 import os
 import time
+import re
 from .providers_clients import get_client
 from .prompts import get_prompt_for_model
 import logging
@@ -13,6 +14,165 @@ import base64
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Regular expressions for validation
+START_MARKER = r"\[START COPY TEXT\]"
+END_MARKER = r"\[END COPY TEXT\]"
+MARKERS_PATTERN = re.compile(f"{START_MARKER}(.*?){END_MARKER}", re.DOTALL)
+MARKDOWN_FENCE_PATTERN = re.compile(r"```markdown\s*\n(.*?)```", re.DOTALL)
+
+
+def is_valid_markdown(markdown: str) -> bool:
+    """
+    Check if the provided string is valid markdown.
+    This is a basic validation that checks for common markdown syntax errors.
+    
+    Args:
+        markdown: The markdown string to validate
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    # Check for basic structural validity
+    try:
+        # Check for unclosed code blocks
+        code_blocks = re.findall(r"```[^\n]*\n", markdown)
+        closing_blocks = re.findall(r"\n```", markdown)
+        if len(code_blocks) != len(closing_blocks):
+            logger.warning("Markdown validation failed: Unclosed code blocks")
+            return False
+            
+        # Check for unclosed inline code
+        if markdown.count('`') % 2 != 0:
+            logger.warning("Markdown validation failed: Unclosed inline code")
+            return False
+            
+        # Check for unclosed links
+        if markdown.count('[') != markdown.count(']'):
+            logger.warning("Markdown validation failed: Unclosed square brackets")
+            return False
+            
+        # Check for unclosed parentheses in links
+        if markdown.count('(') != markdown.count(')'):
+            logger.warning("Markdown validation failed: Unclosed parentheses")
+            return False
+            
+        return True
+    except Exception as e:
+        logger.error(f"Error validating markdown: {str(e)}")
+        return False
+
+
+def has_copy_markers(markdown: str) -> bool:
+    """
+    Check if the markdown contains both START COPY TEXT and END COPY TEXT markers.
+    
+    Args:
+        markdown: The markdown string to check
+        
+    Returns:
+        True if both markers are present, False otherwise
+    """
+    has_start = re.search(START_MARKER, markdown) is not None
+    has_end = re.search(END_MARKER, markdown) is not None
+    
+    if not has_start:
+        logger.warning("Markdown missing [START COPY TEXT] marker")
+    if not has_end:
+        logger.warning("Markdown missing [END COPY TEXT] marker")
+        
+    return has_start and has_end
+
+
+def extract_content_between_markers(markdown: str) -> str:
+    """
+    Extract the content between START COPY TEXT and END COPY TEXT markers.
+    
+    Args:
+        markdown: The markdown string with markers
+        
+    Returns:
+        The content between the markers, or the original string if markers not found
+    """
+    match = MARKERS_PATTERN.search(markdown)
+    if match:
+        return match.group(1).strip()
+    else:
+        logger.warning("Could not extract content between markers")
+        return markdown
+
+
+def remove_markdown_and_markers(markdown: str) -> str:
+    """
+    Remove both markdown code fence (```) and START/END COPY TEXT markers.
+    First extracts content between START/END COPY TEXT markers, then removes
+    the first and last occurrences of ```.
+    
+    Args:
+        markdown: The original markdown string with potential fences and markers
+        
+    Returns:
+        Clean markdown content without fences or markers
+    """
+    logger.debug(f"Original markdown before cleaning: {markdown[:100]}...")
+    
+    # Step 1: First extract content between START/END COPY TEXT markers
+    marker_match = MARKERS_PATTERN.search(markdown)
+    if marker_match:
+        # Found markers, extract the content
+        markdown = marker_match.group(1).strip()
+        logger.debug("Removed START/END COPY TEXT markers")
+    else:
+        # If no pattern match, try direct string replacement for markers
+        if '[START COPY TEXT]' in markdown and '[END COPY TEXT]' in markdown:
+            start_idx = markdown.find('[START COPY TEXT]') + len('[START COPY TEXT]')
+            end_idx = markdown.find('[END COPY TEXT]')
+            if end_idx > start_idx:
+                markdown = markdown[start_idx:end_idx].strip()
+                logger.debug("Extracted content between markers using string indices")
+            else:
+                # Direct replacement as last resort
+                markdown = markdown.replace('[START COPY TEXT]', '').replace('[END COPY TEXT]', '')
+                markdown = markdown.strip()
+                logger.debug("Removed markers using direct replacement")
+        else:
+            logger.debug("No START/END COPY TEXT markers found for removal")
+    
+    # Step 2: Remove first and last occurrences of ```
+    if '```' in markdown:
+        # Count occurrences
+        count = markdown.count('```')
+        logger.debug(f"Found {count} code fence markers")
+        
+        if count >= 2:
+            # Find first occurrence
+            first_idx = markdown.find('```')
+            # Find index after first ``` (including the ```)
+            after_first = first_idx + 3
+            
+            # Find last occurrence
+            last_idx = markdown.rfind('```')
+            
+            # Only proceed if they're different occurrences
+            if last_idx > after_first:
+                # Get the content between the first occurrence (after the ```) and before the last occurrence
+                # +3 to skip past the first ```
+                # We don't include the last ```
+                markdown = markdown[after_first:last_idx].strip()
+                logger.debug("Removed first and last ``` markers")
+            else:
+                logger.debug("Cannot remove first/last ```, they are the same occurrence or invalid positions")
+        else:
+            # Remove the single ``` if there's only one
+            markdown = markdown.replace('```', '').strip()
+            logger.debug("Removed single ``` marker")
+    else:
+        logger.debug("No ``` markers found for removal")
+    
+    # Final cleanup - remove any markdown language specifier if present
+    #markdown = re.sub(r'^markdown\s*\n', '', markdown)
+    
+    return markdown.strip()
 
 
 class RetryPolicy:
@@ -125,6 +285,31 @@ class MarkThat:
                 logger.error(f"Failed to read image file: {str(e)}")
                 raise
     
+    def _validate_markdown(self, markdown: str) -> Tuple[bool, str]:
+        """
+        Validate the generated markdown for structure and markers.
+        
+        Args:
+            markdown: Generated markdown string
+            
+        Returns:
+            Tuple of (is_valid, validation_message)
+        """
+        # Skip validation if generation failed
+        if markdown == "Conversion failed with all models":
+            logger.error(f"Generation failed: {markdown}")
+            return False, "Generation failed"
+            
+        if not is_valid_markdown(markdown):
+            logger.error(f"Invalid markdown structure is_valid_markdown : {markdown}")
+            return False, "Invalid markdown structure"
+            
+        if not has_copy_markers(markdown):
+            logger.error(f"Missing required START/END COPY TEXT markers: {markdown}")
+            return False, "Missing required START/END COPY TEXT markers"
+            
+        return True, "Validation successful"
+    
     def _convert_with_model(self, model_name: str, content: bytes, format_options: Optional[Dict[str, Any]] = None, additional_instructions: Optional[str] = None):
         """
         Try to convert content using the specified model with retries.
@@ -181,8 +366,24 @@ class MarkThat:
                         ]
                     )
                     
-                    logger.info(f"Gemini generation successful")
-                    return response.text
+                    result = response.text
+                    
+                    # Validate the result
+                    is_valid, validation_msg = self._validate_markdown(result)
+                    if not is_valid:
+                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        # If it's missing markers but otherwise valid, we'll add them
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
+                            logger.info("Adding missing markers to otherwise valid markdown")
+                            result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
+                            is_valid = True
+                    
+                    if is_valid:
+                        logger.info(f"Gemini generation successful")
+                        return result
+                    else:
+                        logger.error(f"Invalid markdown generated, will retry")
+                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
                 
                 elif "gpt" in model_name.lower():
                     logger.debug("Using OpenAI API")
@@ -196,8 +397,25 @@ class MarkThat:
                             ]}
                         ]
                     )
-                    logger.info(f"OpenAI generation successful")
-                    return response.choices[0].message.content
+                    
+                    result = response.choices[0].message.content
+                    
+                    # Validate the result
+                    is_valid, validation_msg = self._validate_markdown(result)
+                    if not is_valid:
+                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        # If it's missing markers but otherwise valid, we'll add them
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
+                            logger.info("Adding missing markers to otherwise valid markdown")
+                            result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
+                            is_valid = True
+                    
+                    if is_valid:
+                        logger.info(f"OpenAI generation successful")
+                        return result
+                    else:
+                        logger.error(f"Invalid markdown generated, will retry")
+                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
                 
                 elif "claude" in model_name.lower():
                     logger.debug("Using Anthropic API")
@@ -212,8 +430,25 @@ class MarkThat:
                             ]}
                         ]
                     )
-                    logger.info(f"Claude generation successful")
-                    return response.content[0].text
+                    
+                    result = response.content[0].text
+                    
+                    # Validate the result
+                    is_valid, validation_msg = self._validate_markdown(result)
+                    if not is_valid:
+                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        # If it's missing markers but otherwise valid, we'll add them
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
+                            logger.info("Adding missing markers to otherwise valid markdown")
+                            result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
+                            is_valid = True
+                    
+                    if is_valid:
+                        logger.info(f"Claude generation successful")
+                        return result
+                    else:
+                        logger.error(f"Invalid markdown generated, will retry")
+                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
                 
                 elif "mistral" in model_name.lower():
                     logger.debug("Using Mistral API")
@@ -224,8 +459,25 @@ class MarkThat:
                             {"role": "user", "content": f"{user_prompt}\n\n[Image: data:image/jpeg;base64,{base64_image}]"}
                         ]
                     )
-                    logger.info(f"Mistral generation successful")
-                    return response.choices[0].message.content
+                    
+                    result = response.choices[0].message.content
+                    
+                    # Validate the result
+                    is_valid, validation_msg = self._validate_markdown(result)
+                    if not is_valid:
+                        logger.warning(f"Generated markdown validation failed: {validation_msg}")
+                        # If it's missing markers but otherwise valid, we'll add them
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and is_valid_markdown(result):
+                            logger.info("Adding missing markers to otherwise valid markdown")
+                            result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
+                            is_valid = True
+                    
+                    if is_valid:
+                        logger.info(f"Mistral generation successful")
+                        return result
+                    else:
+                        logger.error(f"Invalid markdown generated, will retry")
+                        raise ValueError(f"Generated markdown validation failed: {validation_msg}")
                 
                 else:
                     error_msg = f"Unsupported model: {model_name}"
@@ -259,6 +511,7 @@ class MarkThat:
         format_options: Optional[Dict[str, Any]] = None,
         max_retry: Optional[int] = None,
         additional_instructions: Optional[str] = None,
+        clean_output: bool = True
     ) -> Union[str, List[str]]:
         """
         Convert an image or PDF to markdown.
@@ -268,6 +521,7 @@ class MarkThat:
             format_options: Options for formatting the output
             max_retry: Override the default max retries
             additional_instructions: Additional instructions for the prompt
+            clean_output: If True, removes markdown fences and START/END COPY TEXT markers
             
         Returns:
             For a single image: markdown string
@@ -315,6 +569,15 @@ class MarkThat:
             if result:
                 logger.info(f"Conversion successful for content {i+1}")
                 logger.debug(f"Result length: {len(result)} characters")
+                
+                # Clean the output if requested
+                if clean_output and result != "Conversion failed with all models":
+                    original_length = len(result)
+                    logger.info(f"Original result: {result}")
+                    logger.info(f"Original result length: {original_length} characters")
+                    result = remove_markdown_and_markers(result)
+                    new_length = len(result)
+                    logger.info(f"Cleaned output by removing markdown fences and markers (reduced from {original_length} to {new_length} characters)")
             else:
                 logger.error(f"Conversion failed for content {i+1} with all models")
             
@@ -323,3 +586,39 @@ class MarkThat:
         # Return single result for images, list for PDFs
         logger.info(f"Conversion complete, returning {len(results)} results")
         return results if len(results) > 1 else results[0]
+    
+    def get_clean_markdown(self, markdown: str) -> str:
+        """
+        Extract the content between START COPY TEXT and END COPY TEXT markers.
+        
+        Args:
+            markdown: The markdown string with markers
+            
+        Returns:
+            The content between the markers, or the original string if markers not found
+        """
+        return extract_content_between_markers(markdown)
+    
+    def get_clean_content(self, markdown: str) -> str:
+        """
+        Remove both markdown fence tags and START/END COPY TEXT markers.
+        
+        Args:
+            markdown: The original markdown string
+            
+        Returns:
+            Clean markdown content without fences or markers
+        """
+        return remove_markdown_and_markers(markdown)
+    
+    def validate_markdown(self, markdown: str) -> Tuple[bool, str]:
+        """
+        Validate the markdown for structure and required markers.
+        
+        Args:
+            markdown: The markdown string to validate
+            
+        Returns:
+            Tuple of (is_valid, validation_message)
+        """
+        return self._validate_markdown(markdown)
