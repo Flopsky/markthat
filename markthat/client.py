@@ -264,7 +264,8 @@ class MarkThat:
     
     def __init__(
         self,
-        primary_model: str,
+        model: str,
+        provider: Optional[str] = None,
         fallback_models: Optional[List[str]] = None,
         retry_policy: Optional[RetryPolicy] = None,
         api_key: Optional[str] = None,
@@ -274,13 +275,16 @@ class MarkThat:
         Initialize the MarkThat converter.
         
         Args:
-            primary_model: Name of the primary model to use
+            model: Name of the primary model to use
+            provider: Provider name (e.g., 'openai', 'anthropic', 'google', 'mistral'). 
+                     If not provided, will be inferred from model name for backward compatibility.
             fallback_models: List of fallback models to try if primary fails
             retry_policy: Custom retry policy configuration
             api_key: API key for the provider
             max_retry: Maximum number of retries per model
         """
-        self.primary_model = primary_model
+        self.model = model
+        self.provider = provider or self._infer_provider_from_model(model)
         self.fallback_models = fallback_models or []
         self.retry_policy = retry_policy or RetryPolicy(max_attempts=max_retry)
         self.api_key = api_key
@@ -290,23 +294,52 @@ class MarkThat:
         self._primary_client = None
         self._fallback_clients = {}
         
-        logger.info(f"MarkThat initialized with primary model: {primary_model}")
+        logger.info(f"MarkThat initialized with primary model: {model}")
+        logger.info(f"Provider: {self.provider}")
         if fallback_models:
             logger.info(f"Fallback models: {', '.join(fallback_models)}")
         logger.info(f"Max retry attempts: {self.retry_policy.max_attempts}")
     
+    def _infer_provider_from_model(self, model_name: str) -> str:
+        """
+        Infer the provider from the model name for backward compatibility.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Inferred provider name
+        """
+        model_name_lower = model_name.lower()
+        
+        # Check for OpenRouter format first (provider/model)
+        if "/" in model_name_lower:
+            return "openrouter"
+        elif "gemini" in model_name_lower:
+            return "google"
+        elif "gpt" in model_name_lower:
+            return "openai"
+        elif "claude" in model_name_lower:
+            return "anthropic"
+        elif "mistral" in model_name_lower:
+            return "mistral"
+        else:
+            raise ValueError(f"Cannot infer provider from model name: {model_name}. Please specify provider explicitly.")
+    
     def _get_primary_client(self):
         """Get the primary client, initializing if necessary."""
         if not self._primary_client:
-            logger.debug(f"Initializing primary client for model: {self.primary_model}")
-            self._primary_client = get_client(self.primary_model, self.api_key)
+            logger.debug(f"Initializing primary client for model: {self.model}")
+            self._primary_client = get_client(self.model, self.provider, self.api_key)
         return self._primary_client
     
     def _get_fallback_client(self, model_name: str):
         """Get a fallback client by name, initializing if necessary."""
         if model_name not in self._fallback_clients:
             logger.debug(f"Initializing fallback client for model: {model_name}")
-            self._fallback_clients[model_name] = get_client(model_name, self.api_key)
+            # For fallback models, infer provider from model name
+            fallback_provider = self._infer_provider_from_model(model_name)
+            self._fallback_clients[model_name] = get_client(model_name, fallback_provider, self.api_key)
         return self._fallback_clients[model_name]
     
     def _convert_page_to_image(self, page) -> bytes:
@@ -427,7 +460,14 @@ class MarkThat:
         if additional_instructions:
             logger.debug(f"Additional instructions provided: {len(additional_instructions)} characters")
         
-        client = get_client(model_name, self.api_key)
+        # Get the provider for this model
+        if model_name == self.model:
+            provider = self.provider
+        else:
+            # For fallback models, infer provider from model name
+            provider = self._infer_provider_from_model(model_name)
+        
+        client = get_client(model_name, provider, self.api_key)
         
         # Create a failure tracker for this conversion
         failure_tracker = FailureTracker()
@@ -644,6 +684,60 @@ class MarkThat:
                         )
                         raise ValueError(error_msg)
                 
+                elif provider == "openrouter" or "/" in model_name:
+                    logger.debug("Using OpenRouter API")
+                    
+                    # Check if this is a PDF file based on MIME type detection
+                    # For now, assume image format - PDF support would need file extension detection
+                    
+                    # Prepare messages for OpenRouter (OpenAI-compatible API)
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": [
+                            {"type": "text", "text": user_prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                        ]}
+                    ]
+                    
+                    # For OpenRouter, we can add optional plugins for enhanced features
+                    # This is particularly useful for PDF processing
+                    payload = {
+                        "model": model_name,
+                        "messages": messages
+                    }
+                    
+                    # Optional: Add plugins for file processing capabilities
+                    # payload["plugins"] = [{"id": "file-parser", "pdf": {"engine": "pdf-text"}}]
+                    
+                    response = client.chat.completions.create(**payload)
+                    
+                    result = response.choices[0].message.content
+                    
+                    # Validate the result
+                    is_valid, validation_msg = self.validate_markdown(result, description_mode=description_mode)
+                    if not is_valid:
+                        logger.warning(f"Generated output validation failed: {validation_msg}")
+                        # If it's missing markers but otherwise valid, we'll add them
+                        if validation_msg == "Missing required START/END COPY TEXT markers" and (description_mode or is_valid_markdown(result)):
+                            logger.info("Adding missing markers to otherwise valid output")
+                            result = f"[START COPY TEXT]\n{result}\n[END COPY TEXT]"
+                            is_valid = True
+                    
+                    if is_valid:
+                        logger.info(f"OpenRouter generation successful")
+                        return result
+                    else:
+                        error_msg = f"Generated output validation failed: {validation_msg}"
+                        logger.error(f"Invalid output generated, will retry")
+                        # Track this failure
+                        failure_tracker.add_failure(
+                            attempt_number=attempt+1,
+                            error_type="Validation",
+                            error_message=validation_msg,
+                            model_output=result
+                        )
+                        raise ValueError(error_msg)
+                
                 else:
                     error_msg = f"Unsupported model: {model_name}"
                     logger.error(error_msg)
@@ -722,9 +816,9 @@ class MarkThat:
             logger.info(f"Processing content {i+1}/{len(contents)}")
             
             # Try with primary model
-            logger.info(f"Attempting conversion with primary model: {self.primary_model}")
+            logger.info(f"Attempting conversion with primary model: {self.model}")
             result = self._convert_with_model(
-                self.primary_model, 
+                self.model, 
                 content, 
                 format_options=format_options,
                 additional_instructions=additional_instructions,

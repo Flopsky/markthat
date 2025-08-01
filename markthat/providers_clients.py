@@ -90,6 +90,26 @@ class MistralClient(ProviderClient):
             raise ImportError("Please install the required package: pip install mistralai>=1.7.0")
 
 
+class OpenRouterClient(ProviderClient):
+    """Client for OpenRouter - unified access to multiple LLM providers."""
+    
+    def _initialize_client(self):
+        try:
+            from openai import OpenAI
+            
+            api_key = self.api_key or os.environ.get("OPENROUTER_API_KEY")
+            if not api_key:
+                raise ValueError("OpenRouter API key is required")
+            
+            # OpenRouter uses OpenAI-compatible API with custom base URL
+            self._client = OpenAI(
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1"
+            )
+        except ImportError:
+            raise ImportError("Please install the required package: pip install openai")
+
+
 class ProviderClientFactory:
     """Factory class to create appropriate provider clients."""
     
@@ -99,55 +119,58 @@ class ProviderClientFactory:
         "gpt": OpenAIClient,
         "claude": AnthropicClient,
         "mistral": MistralClient,
+        "openrouter": OpenRouterClient,
     }
     
     @classmethod
-    def create_client(cls, provider_name: str, api_key: Optional[str] = None) -> ProviderClient:
+    def create_client(cls, provider: str, api_key: Optional[str] = None) -> ProviderClient:
         """
-        Create a provider client based on the model name.
+        Create a provider client based on the provider name.
         
         Args:
-            provider_name: Name of the model/provider
+            provider: Name of the provider (e.g., 'openai', 'anthropic', 'google', 'mistral')
             api_key: API key for the provider
             
         Returns:
             An initialized provider client
         """
-        provider_class = None
-        provider_name_lower = provider_name.lower()
+        provider_lower = provider.lower()
         
-        # Determine which provider this is based on the model name
-        if "gemini" in provider_name_lower:
-            provider = "gemini"
-        elif "gpt" in provider_name_lower:
-            provider = "gpt"
-        elif "claude" in provider_name_lower:
-            provider = "claude"
-        elif "mistral" in provider_name_lower:
-            provider = "mistral"
-        else:
-            # Default to a generic provider
-            provider = None
+        # Map provider names to our internal provider keys
+        provider_key_map = {
+            "openai": "gpt",
+            "anthropic": "claude", 
+            "google": "gemini",
+            "mistral": "mistral",
+            "openrouter": "openrouter"
+        }
+        
+        # Get the provider key
+        provider_key = provider_key_map.get(provider_lower)
+        if not provider_key:
+            # Try direct mapping for backward compatibility
+            provider_key = provider_lower
         
         # Get the appropriate provider class
-        provider_class = cls.PROVIDER_MAP.get(provider)
+        provider_class = cls.PROVIDER_MAP.get(provider_key)
         
         if not provider_class:
-            raise ValueError(f"Unsupported provider: {provider_name}")
+            raise ValueError(f"Unsupported provider: {provider}. Supported providers: {list(provider_key_map.keys())}")
         
         return provider_class(api_key=api_key)
 
 
-def get_client(model_name: str, api_key: Optional[str] = None) -> Any:
+def get_client(model_name: str, provider: str, api_key: Optional[str] = None) -> Any:
     """
-    Get the appropriate client for the given model.
+    Get the appropriate client for the given model and provider.
     
     Args:
-        model_name: Name of the model
+        model_name: Name of the model (used for logging and context)
+        provider: Name of the provider (e.g., 'openai', 'anthropic', 'google', 'mistral')
         api_key: API key for the provider
         
     Returns:
-        Initialized client for the specified model
+        Initialized client for the specified provider
     """
-    client = ProviderClientFactory.create_client(model_name, api_key)
+    client = ProviderClientFactory.create_client(provider, api_key)
     return client.get_client()

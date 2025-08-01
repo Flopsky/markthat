@@ -33,7 +33,8 @@ def load_prompt_template(template_name: str) -> jinja2.Template:
 def get_prompt_for_model(
     model_name: str, 
     format_options: Optional[Dict[str, Any]] = None,
-    additional_instructions: Optional[str] = None
+    additional_instructions: Optional[str] = None,
+    description_mode: bool = False
 ) -> Dict[str, str]:
     """
     Get the appropriate prompt configuration for a given model.
@@ -42,13 +43,20 @@ def get_prompt_for_model(
         model_name: Name of the model
         format_options: Optional formatting options to include in the prompt
         additional_instructions: Additional instructions to include in the user prompt
-    
+        description_mode: If True, use description-specific prompts
     Returns:
         A dictionary with system and user prompts
     """
-    # Load templates
-    system_template = load_prompt_template("system_prompt.j2")
-    user_template = load_prompt_template("user_prompt.j2")
+    # Load templates based on description_mode
+    if description_mode:
+        system_template_name = "system_prompt_describe.j2"
+        user_template_name = "user_prompt_describe.j2"
+    else:
+        system_template_name = "system_prompt.j2"
+        user_template_name = "user_prompt.j2"
+        
+    system_template = load_prompt_template(system_template_name)
+    user_template = load_prompt_template(user_template_name)
     
     # Render templates with options
     system_prompt = system_template.render(format_options=format_options)

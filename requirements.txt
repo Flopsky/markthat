@@ -1,6 +1,8 @@
 openai
 anthropic
+google-generativeai
 mistralai
 gemini-api
 litellm
-
+pymupdf
+jinja2

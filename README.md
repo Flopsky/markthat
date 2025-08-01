@@ -13,6 +13,7 @@ MarkThat is a robust tool that leverages various multimodal LLMs to convert visu
   - OpenAI GPT-4.1
   - Anthropic Claude Sonnet
   - Mistral Medium
+  - **OpenRouter** (unified access to 300+ models)
   - And more...
 - **Dual Mode**: Convert images to Markdown or generate detailed image descriptions.
 - Automatic retry with different models if conversion/description fails.
@@ -31,7 +32,7 @@ pip install markthat
 from markthat import MarkThat
 
 # Initialize with your preferred model and API key
-converter = MarkThat(primary_model="gemini-2.0-flash", api_key="YOUR_API_KEY")
+converter = MarkThat(model="gemini-2.0-flash", api_key="YOUR_API_KEY")
 
 # Convert an image to markdown (default mode)
 markdown_output = converter.convert("path/to/image.jpg", max_retry=4)
@@ -53,13 +54,96 @@ for page_desc in pdf_description_pages:
 
 # Using with fallbacks when each model fails all their retries
 converter_with_fallback = MarkThat(
-    primary_model="gpt-4.1",
+    model="gpt-4.1",
     max_retry=4,
     fallback_models=["claude-sonnet", "mistral-medium"],
     api_key="YOUR_API_KEY"
 )
 complex_image_md = converter_with_fallback.convert("path/to/complex_image.png")
 print(complex_image_md)
+```
+
+## Provider Examples
+
+### Direct Provider Access
+
+Use specific providers directly with their native APIs:
+
+```python
+from markthat import MarkThat
+
+# OpenAI GPT-4o
+openai_converter = MarkThat(
+    model="gpt-4o",
+    provider="openai",
+    api_key="YOUR_OPENAI_API_KEY"
+)
+
+# Anthropic Claude
+claude_converter = MarkThat(
+    model="claude-3-5-sonnet-20241022",
+    provider="anthropic", 
+    api_key="YOUR_ANTHROPIC_API_KEY"
+)
+
+# Google Gemini
+gemini_converter = MarkThat(
+    model="gemini-2.0-flash-exp",
+    provider="google",
+    api_key="YOUR_GEMINI_API_KEY"
+)
+
+# Mistral
+mistral_converter = MarkThat(
+    model="mistral-large-latest",
+    provider="mistral",
+    api_key="YOUR_MISTRAL_API_KEY"
+)
+
+# Convert image with any provider
+result = openai_converter.convert("path/to/image.jpg")
+print(result)
+```
+
+### OpenRouter - Unified Provider Access
+
+Access 300+ models from multiple providers through a single API:
+
+```python
+from markthat import MarkThat
+
+# OpenRouter automatically detected for models with "/" format
+openrouter_converter = MarkThat(
+    model="anthropic/claude-3.5-sonnet",  # Auto-detects OpenRouter
+    api_key="YOUR_OPENROUTER_API_KEY"
+)
+
+# Or explicitly specify OpenRouter provider
+explicit_converter = MarkThat(
+    model="openai/gpt-4o",
+    provider="openrouter",
+    api_key="YOUR_OPENROUTER_API_KEY"
+)
+
+# Popular OpenRouter models
+models = [
+    "openai/gpt-4o",                    # OpenAI GPT-4o
+    "anthropic/claude-3.5-sonnet",      # Anthropic Claude 3.5 Sonnet
+    "google/gemini-pro-vision",         # Google Gemini Pro Vision
+    "meta-llama/llama-3.2-90b-vision", # Meta Llama Vision
+    "qwen/qwen-2-vl-72b-instruct"      # Qwen Vision
+]
+
+# Multi-provider fallbacks through OpenRouter
+multi_provider_converter = MarkThat(
+    model="anthropic/claude-3.5-sonnet",
+    fallback_models=["openai/gpt-4o", "google/gemini-pro-vision"],
+    api_key="YOUR_OPENROUTER_API_KEY"
+)
+
+# Convert image
+result = openrouter_converter.convert("path/to/image.jpg")
+print(result)
 ```
 
 ## Advanced Usage
@@ -75,7 +159,7 @@ policy = RetryPolicy(
 )
 
 converter = MarkThat(
-    primary_model="gemini-2.0-flash",
+    model="gemini-2.0-flash",
     fallback_models=["gpt-4.1", "claude-sonnet"],
     retry_policy=policy,
     api_key="YOUR_API_KEY"
@@ -108,6 +192,39 @@ is_valid, message = converter.validate_markdown(raw_output) # Checks for markers
 print(f"Is valid: {is_valid}, Message: {message}")
 ```
 
+## Environment Variables
+
+Set your API keys as environment variables for automatic detection:
+
+```bash
+# Direct providers
+export OPENAI_API_KEY="your_openai_api_key"
+export ANTHROPIC_API_KEY="your_anthropic_api_key"
+export GEMINI_API_KEY="your_gemini_api_key"
+export MISTRAL_API_KEY="your_mistral_api_key"
+
+# OpenRouter (unified access)
+export OPENROUTER_API_KEY="your_openrouter_api_key"
+```
+
+Then use without specifying API keys:
+
+```python
+from markthat import MarkThat
+
+# Uses environment variables automatically
+converter = MarkThat(model="anthropic/claude-3.5-sonnet")
+result = converter.convert("image.jpg")
+```
+
+## OpenRouter Benefits
+
+- **Unified API**: Access models from OpenAI, Anthropic, Google, and more through one interface
+- **Cost Optimization**: Compare costs across providers and choose the most economical option
+- **Model Availability**: Automatic fallback when your primary model is unavailable
+- **300+ Models**: Access to the largest collection of multimodal LLMs
+- **Enhanced Features**: Support for advanced features like PDF processing with OCR
+
 ## TODO 
 
 - [x] Init the first feature: convert images to markdown with only images
@@ -115,11 +232,14 @@ print(f"Is valid: {is_valid}, Message: {message}")
 - [x] Add support for fallback on other models
 - [x] Add support for custom retry policies
 - [x] Add support for more models
+- [x] Add OpenRouter support for unified provider access
 - [ ] Add support for more file formats (e.g., TIFF, WEBP)
 - [ ] Add support for more options (e.g., custom prompt templates per call)
 - [ ] Implement `description_mode` for image descriptions
 - [x] Add detailed logging for failures and retries
 - [x] Implement `[START COPY TEXT]` and `[END COPY TEXT]` marker handling
+- [ ] Add OpenRouter PDF processing with OCR engines
+- [ ] Add cost tracking and optimization features
 
 
 ## License
