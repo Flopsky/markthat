@@ -1,8 +1,9 @@
-openai
-anthropic
-google-generativeai
-mistralai
-gemini-api
-litellm
-pymupdf
-jinja2
+openai==1.98.0
+anthropic==0.60.0
+google-generativeai==0.8.5
+mistralai==1.9.3
+gemini-api==0.1.6
+litellm==1.74.12
+pymupdf==1.26.3
+jinja2==3.1.6
+matplotlib==3.10.5
