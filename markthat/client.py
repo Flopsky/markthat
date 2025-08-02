@@ -12,11 +12,10 @@ from .prompts import get_prompt_for_model
 import logging
 import base64
 import io
+import asyncio
+import concurrent.futures
 
-try:
-    import fitz  # PyMuPDF
-except ImportError:
-    pass  # Will raise appropriate error later when used
+import fitz  # PyMuPDF
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -862,6 +861,106 @@ class MarkThat:
         
         # Return single result for images, list for PDFs
         logger.info(f"Conversion complete, returning {len(results)} results")
+        return results
+    
+    async def async_convert(
+        self, 
+        file_path: str, 
+        format_options: Optional[Dict[str, Any]] = None,
+        max_retry: Optional[int] = None,
+        additional_instructions: Optional[str] = None,
+        clean_output: bool = True,
+        description_mode: bool = False
+    ) -> List[str]:
+        """
+        Async version of convert that processes multiple content items concurrently.
+        Convert an image or PDF to markdown, or describe it.
+        
+        Args:
+            file_path: Path to the image or PDF file
+            format_options: Options for formatting the output
+            max_retry: Override the default max retries
+            additional_instructions: Additional instructions for the prompt
+            clean_output: If True, removes markdown fences and START/END COPY TEXT markers
+            description_mode: If True, generate a description instead of markdown
+            
+        Returns:
+            For a single image: markdown string or description string
+            For a PDF: list of markdown strings or description strings, one per page
+        """
+        logger.info(f"Starting async conversion of {file_path} (Description mode: {description_mode})")
+        
+        if max_retry is not None:
+            self.retry_policy.max_attempts = max_retry
+            logger.info(f"Max retry attempts updated to {max_retry}")
+        
+        # Process the file (synchronous as requested)
+        contents = self._process_file(file_path)
+        
+        async def process_single_content(i: int, content: bytes) -> str:
+            """Process a single content item asynchronously."""
+            logger.info(f"Processing content {i+1}/{len(contents)}")
+            
+            # Run the synchronous _convert_with_model in a thread pool
+            loop = asyncio.get_event_loop()
+            
+            # Try with primary model
+            logger.info(f"Attempting conversion with primary model: {self.model}")
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                result = await loop.run_in_executor(
+                    executor,
+                    self._convert_with_model,
+                    self.model,
+                    content,
+                    format_options,
+                    additional_instructions,
+                    description_mode
+                )
+            
+            # If primary model failed and we have fallbacks
+            if result is None and self.fallback_models:
+                logger.info(f"Primary model failed, trying {len(self.fallback_models)} fallback models")
+                for fallback_model in self.fallback_models:
+                    logger.info(f"Attempting conversion with fallback model: {fallback_model}")
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        result = await loop.run_in_executor(
+                            executor,
+                            self._convert_with_model,
+                            fallback_model,
+                            content,
+                            format_options,
+                            additional_instructions,
+                            description_mode
+                        )
+                    if result:
+                        logger.info(f"Fallback model {fallback_model} succeeded")
+                        break
+                    else:
+                        logger.info(f"Fallback model {fallback_model} failed")
+            
+            if result:
+                logger.info(f"Conversion successful for content {i+1}")
+                logger.debug(f"Result length: {len(result)} characters")
+                
+                # Clean the output if requested
+                if clean_output and result != "Conversion failed with all models":
+                    original_length = len(result)
+                    logger.info(f"Original result: {result}")
+                    logger.info(f"Original result length: {original_length} characters")
+                    result = remove_markdown_and_markers(result)
+                    new_length = len(result)
+                    logger.info(f"Cleaned output by removing markdown fences and markers (reduced from {original_length} to {new_length} characters)")
+            else:
+                logger.error(f"Conversion failed for content {i+1} with all models")
+            
+            return result or "Conversion failed with all models"
+        
+        # Process all content items concurrently
+        tasks = [process_single_content(i, content) for i, content in enumerate(contents)]
+        results = await asyncio.gather(*tasks)
+        
+        # Return results
+        logger.info(f"Async conversion complete, returning {len(results)} results")
         return results
     
     def get_clean_markdown(self, markdown: str) -> str:

@@ -63,6 +63,48 @@ complex_image_md = converter_with_fallback.convert("path/to/complex_image.png")
 print(complex_image_md)
 ```
 
+## Async Usage
+
+For better performance when processing multiple content items (like multi-page PDFs), use the async version:
+
+```python
+import asyncio
+from markthat import MarkThat
+
+async def main():
+    # Initialize converter
+    converter = MarkThat(
+        model="gemini-2.0-flash", 
+        api_key="YOUR_API_KEY"
+    )
+    
+    # Convert a multi-page PDF asynchronously (pages processed concurrently)
+    pdf_results = await converter.async_convert("path/to/document.pdf")
+    for i, page_markdown in enumerate(pdf_results):
+        print(f"Page {i+1}:\n{page_markdown}\n")
+    
+    # Generate descriptions for PDF pages concurrently
+    pdf_descriptions = await converter.async_convert(
+        "path/to/document.pdf", 
+        description_mode=True
+    )
+    for i, description in enumerate(pdf_descriptions):
+        print(f"Page {i+1} description:\n{description}\n")
+    
+    # Single image (still works but no concurrency benefit)
+    image_result = await converter.async_convert("path/to/image.jpg")
+    print(image_result[0])  # async_convert always returns a list
+
+# Run the async function
+asyncio.run(main())
+```
+
+**Benefits of Async Mode:**
+- **Concurrent Processing**: Multi-page PDFs are processed simultaneously instead of sequentially
+- **Better Performance**: Significantly faster for documents with multiple pages
+- **Same API**: Identical parameters and behavior as the synchronous `convert` method
+- **Thread-Safe**: Uses thread pools for the actual API calls while maintaining async benefits
+
 ## Provider Examples
 
 ### Direct Provider Access
