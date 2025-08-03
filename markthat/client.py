@@ -16,6 +16,11 @@ import asyncio
 import concurrent.futures
 
 import fitz  # PyMuPDF
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
+import uuid
+import json
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -353,17 +358,16 @@ class MarkThat:
         """
         try:
             # Render the page to a pixmap
-            zoom = 2.0  # Higher resolution
+            # zoom = 2.0  # Higher resolution
             # Create transformation matrix for zoom
             # For compatibility with different PyMuPDF versions
             try:
                 # Newer API attempt
-                matrix = page.rotation_matrix @ page.scale_matrix(zoom, zoom)
-                mat = page.get_pixmap(matrix=matrix)
+                # matrix = page.rotation_matrix @ page.scale_matrix(zoom, zoom)
+                mat = page.get_pixmap()
             except AttributeError:
                 # Fallback for older PyMuPDF versions
                 logger.info("Using fallback method for older PyMuPDF version")
-                mat = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom))
             except Exception as e:
                 # Last resort fallback
                 logger.warning(f"Using basic pixmap rendering due to: {str(e)}")
@@ -439,7 +443,7 @@ class MarkThat:
                 logger.error(f"Failed to read image file: {str(e)}")
                 raise
     
-    def _convert_with_model(self, model_name: str, content: bytes, format_options: Optional[Dict[str, Any]] = None, additional_instructions: Optional[str] = None, description_mode: bool = False):
+    def _convert_with_model(self, model_name: str, content: bytes, format_options: Optional[Dict[str, Any]] = None, additional_instructions: Optional[str] = None, description_mode: bool = False, extract_figure = False, coordinate_model: str = "gemini-2.0-flash-001", parsing_model: str = "gemini-2.5-flash-lite"):
         """
         Try to convert content using the specified model with retries.
         
@@ -449,6 +453,9 @@ class MarkThat:
             format_options: Options for formatting the output
             additional_instructions: Additional instructions for the prompt
             description_mode: If True, generate a description instead of markdown
+            extract_figure: If True, extract figures and save them as separate images
+            coordinate_model: Model to use for figure coordinate extraction
+            parsing_model: Model to use for coordinate parsing
             
         Returns:
             Markdown string or None if all attempts fail
@@ -530,6 +537,9 @@ class MarkThat:
                     
                     if is_valid:
                         logger.info(f"Gemini generation successful")
+                        # Apply figure extraction if enabled
+                        if extract_figure:
+                            result = self._extract_and_save_figures(result, content, coordinate_model, parsing_model)
                         return result
                     else:
                         error_msg = f"Generated output validation failed: {validation_msg}"
@@ -570,6 +580,9 @@ class MarkThat:
                     
                     if is_valid:
                         logger.info(f"OpenAI generation successful")
+                        # Apply figure extraction if enabled
+                        if extract_figure:
+                            result = self._extract_and_save_figures(result, content, coordinate_model, parsing_model)
                         return result
                     else:
                         error_msg = f"Generated output validation failed: {validation_msg}"
@@ -611,6 +624,9 @@ class MarkThat:
                     
                     if is_valid:
                         logger.info(f"Claude generation successful")
+                        # Apply figure extraction if enabled
+                        if extract_figure:
+                            result = self._extract_and_save_figures(result, content, coordinate_model, parsing_model)
                         return result
                     else:
                         error_msg = f"Generated output validation failed: {validation_msg}"
@@ -670,6 +686,9 @@ class MarkThat:
                     
                     if is_valid:
                         logger.info(f"Mistral generation successful")
+                        # Apply figure extraction if enabled
+                        if extract_figure:
+                            result = self._extract_and_save_figures(result, content, coordinate_model, parsing_model)
                         return result
                     else:
                         error_msg = f"Generated output validation failed: {validation_msg}"
@@ -724,6 +743,9 @@ class MarkThat:
                     
                     if is_valid:
                         logger.info(f"OpenRouter generation successful")
+                        # Apply figure extraction if enabled
+                        if extract_figure:
+                            result = self._extract_and_save_figures(result, content, coordinate_model, parsing_model)
                         return result
                     else:
                         error_msg = f"Generated output validation failed: {validation_msg}"
@@ -777,6 +799,378 @@ class MarkThat:
                     logger.error(f"All {self.retry_policy.max_attempts} attempts with {model_name} failed")
                     return None
     
+    def _add_coordinate_grid_to_image(self, image_content: bytes) -> bytes:
+        """
+        Add a coordinate grid to an image and return the modified image as bytes.
+        
+        Args:
+            image_content: Original image content as bytes
+            
+        Returns:
+            Modified image with coordinate grid as bytes
+        """
+        # Load the image from bytes
+        img = Image.open(io.BytesIO(image_content))
+        img_array = np.array(img)
+        
+        # Create figure and axis
+        fig, ax = plt.subplots(figsize=(10, 10))
+        
+        # Display the image without deformation in its original orientation
+        ax.imshow(img_array)
+        
+        # Set up coordinate system overlay
+        height, width = img_array.shape[:2]
+        
+        # Create a coordinate system overlay that preserves image proportions
+        # Use the image's actual dimensions but scale the coordinate display
+        ax.set_xlim(0, width)
+        ax.set_ylim(height, 0)  # Invert y-axis to have origin at bottom-left
+        
+        # Create custom tick locations and labels for 0-30 scale
+        # Calculate tick positions based on image dimensions
+        x_tick_positions = np.linspace(0, width, 31)  # 31 points for 0-30
+        y_tick_positions = np.linspace(0, height, 31)
+        x_tick_labels = np.arange(0, 31)
+        y_tick_labels = np.arange(30, -1, -1)  # Reverse labels to have 0 at bottom
+        
+        # Set ticks with custom positions and labels
+        ax.set_xticks(x_tick_positions)
+        ax.set_xticklabels(x_tick_labels)
+        ax.set_yticks(y_tick_positions)
+        ax.set_yticklabels(y_tick_labels)
+        ax.grid(True, linestyle='--', alpha=0.5)
+        
+        # Add axis labels
+        ax.set_xlabel('X')
+        ax.set_ylabel('Y')
+        
+        # Add title
+        ax.set_title('Image with Coordinate System (Origin at 0,0)')
+        
+        # Save the figure to bytes
+        plt.tight_layout()
+        buffer = io.BytesIO()
+        plt.savefig(buffer, format='png')
+        plt.close()
+        buffer.seek(0)
+        
+        return buffer.getvalue()
+    
+    def _get_figure_coordinates_from_model(self, image_with_grid: bytes, figure_description: str, model_name: str) -> str:
+        """
+        Call specified model to get coordinates of a figure in the image.
+        
+        Args:
+            image_with_grid: Image with coordinate grid as bytes
+            figure_description: Description of the figure to find
+            model_name: Name of the model to use for coordinate extraction
+            
+        Returns:
+            String response from model with coordinate description
+        """
+        try:
+            from .providers_clients import get_client
+            from .prompts.base_prompts import load_prompt_template
+
+            logger.info(f"Getting coordinates for figure: {figure_description} using model: {model_name}")
+            
+            # Get provider for this model
+            provider = self._infer_provider_from_model(model_name)
+            client = get_client(model_name, provider, self.api_key)
+            
+            # Load prompts
+            system_template = load_prompt_template("system_prompt_extract_figure.j2")
+            user_template = load_prompt_template("user_prompt_extract_figure.j2")
+            system_prompt = system_template.render()
+            user_prompt = user_template.render(prompt=figure_description)
+            
+            # Encode image as base64 for APIs that need it
+            base64_image = base64.b64encode(image_with_grid).decode('utf-8')
+            
+            # Handle different client APIs
+            if "gemini" in model_name.lower():
+                logger.debug("Using Gemini API for coordinate extraction")
+                model = client.GenerativeModel(model_name)
+                combined_prompt = f"{system_prompt}\n\n{user_prompt}"
+                response = model.generate_content(
+                    contents=[
+                        combined_prompt,
+                        {"mime_type": "image/png", "data": image_with_grid}
+                    ]
+                )
+                result = response.text
+                
+            elif "gpt" in model_name.lower():
+                logger.debug("Using OpenAI API for coordinate extraction")
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": [
+                            {"type": "text", "text": user_prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                        ]}
+                    ]
+                )
+                result = response.choices[0].message.content
+                
+            elif "claude" in model_name.lower():
+                logger.debug("Using Anthropic API for coordinate extraction")
+                response = client.messages.create(
+                    model=model_name,
+                    max_tokens=4000,
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": [
+                            {"type": "text", "text": user_prompt},
+                            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64_image}}
+                        ]}
+                    ]
+                )
+                result = response.content[0].text
+                
+            else:
+                # OpenRouter or other providers
+                logger.debug("Using OpenRouter API for coordinate extraction")
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": [
+                            {"type": "text", "text": user_prompt},
+                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{base64_image}"}}
+                        ]}
+                    ]
+                )
+                result = response.choices[0].message.content
+            
+            logger.info(f"Response from {model_name} for figure {figure_description}: {result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to get coordinates from {model_name}: {str(e)}")
+            raise e
+    
+    def _parse_coordinates_from_model(self, coordinate_description: str, model_name: str) -> dict:
+        """
+        Call specified model to parse coordinates from description into JSON format.
+        
+        Args:
+            coordinate_description: String description of coordinates from first model call
+            model_name: Name of the model to use for coordinate parsing
+            
+        Returns:
+            Dictionary with A, B, C, D coordinates
+        """
+        try:
+            from .providers_clients import get_client
+            from .prompts.base_prompts import load_prompt_template
+            
+            logger.info(f"Parsing coordinates using model: {model_name}")
+            
+            # Get provider for this model
+            provider = self._infer_provider_from_model(model_name)
+            client = get_client(model_name, provider, self.api_key)
+            
+            # Load prompts
+            system_template = load_prompt_template("system_prompt_get_coordinates.j2")
+            user_template = load_prompt_template("user_prompt_get_coordinates.j2")
+            system_prompt = system_template.render()
+            user_prompt = user_template.render(model_response=coordinate_description)
+            
+            # Handle different client APIs
+            if "gemini" in model_name.lower():
+                logger.debug("Using Gemini API for coordinate parsing")
+                model = client.GenerativeModel(model_name)
+                combined_prompt = f"{system_prompt}\n\n{user_prompt}"
+                response = model.generate_content(
+                    contents=[combined_prompt]
+                )
+                result = response.text
+                
+            elif "gpt" in model_name.lower():
+                logger.debug("Using OpenAI API for coordinate parsing")
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+                result = response.choices[0].message.content
+                
+            elif "claude" in model_name.lower():
+                logger.debug("Using Anthropic API for coordinate parsing")
+                response = client.messages.create(
+                    model=model_name,
+                    max_tokens=4000,
+                    system=system_prompt,
+                    messages=[
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+                result = response.content[0].text
+                
+            else:
+                # OpenRouter or other providers
+                logger.debug("Using OpenRouter API for coordinate parsing")
+                response = client.chat.completions.create(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+                result = response.choices[0].message.content
+            
+            # Parse JSON response
+            json_str = result.replace("```json", "").replace("```", "").strip()
+            return json.loads(json_str)
+            
+        except Exception as e:
+            logger.error(f"Failed to parse coordinates from {model_name}: {str(e)}")
+            return None
+    
+    def _crop_image_with_coordinates(self, image_content: bytes, coordinates: dict) -> bytes:
+        """
+        Crop an image using coordinates in 0-30 scale.
+        
+        Args:
+            image_content: Original image content as bytes
+            coordinates: Dictionary with A, B, C, D coordinates
+            
+        Returns:
+            Cropped image as bytes
+        """
+        # Load the original image
+        img = Image.open(io.BytesIO(image_content))
+        width, height = img.size
+        
+        # Extract all coordinate points
+        points = [coordinates["A"], coordinates["B"], coordinates["C"], coordinates["D"]]
+        
+        # Convert from 0-30 scale to pixel coordinates
+        pixel_points = []
+        for point in points:
+            pixel_x = int(point[0] * width / 30)
+            pixel_y = int((30 - point[1]) * height / 30)  # Invert Y since image origin is top-left
+            pixel_points.append([pixel_x, pixel_y])
+        
+        # Find bounding box (min/max x and y coordinates)
+        x_coords = [p[0] for p in pixel_points]
+        y_coords = [p[1] for p in pixel_points]
+        
+        min_x = max(0, min(x_coords))
+        max_x = min(width, max(x_coords))
+        min_y = max(0, min(y_coords))
+        max_y = min(height, max(y_coords))
+        
+        # Crop the image
+        cropped_img = img.crop((min_x, min_y, max_x, max_y))
+        
+        # Save to bytes
+        buffer = io.BytesIO()
+        cropped_img.save(buffer, format='PNG')
+        buffer.seek(0)
+        
+        return buffer.getvalue()
+    
+    def _extract_and_save_figures(self, result: str, original_image_content: bytes, coordinate_model: str, parsing_model: str) -> str:
+        """
+        Extract figures from OCR result and save them as separate images.
+        
+        Args:
+            result: OCR result text
+            original_image_content: Original image content as bytes
+            coordinate_model: Model to use for figure coordinate extraction
+            parsing_model: Model to use for coordinate parsing
+            
+        Returns:
+            Modified result text with figure paths added
+        """
+        # Check if extract_figure is enabled and result contains figure references
+        logger.info(f"Extracting figures from result: {result}")
+        figure_pattern = re.compile(r'^\s*(?:\*\*)?(?:##\s*)?Figure\s*(\d+)(?:\*\*)?:?\s*', re.IGNORECASE | re.MULTILINE)
+        matches = figure_pattern.finditer(result)
+
+        matches = [match.group(0).strip() for match in matches]
+        
+        if not matches:
+            logger.info(f"No figure references found in result: {result}")
+            return result
+        
+        logger.info(f"Found {len(matches)} figure references: {matches}")
+        
+        # Ensure images directory exists
+        images_dir = "images"
+        os.makedirs(images_dir, exist_ok=True)
+        
+        # Collect all absolute paths for final insertion
+        figure_paths = []
+        
+        for figure_number in matches:
+            try:
+                logger.info(f"Processing Figure {figure_number}")
+                
+                # Add coordinate grid to the image
+                image_with_grid = self._add_coordinate_grid_to_image(original_image_content)
+                
+                # Get coordinates from model
+                figure_description = f"{figure_number}"
+                coordinate_description = self._get_figure_coordinates_from_model(
+                    image_with_grid, figure_description, coordinate_model
+                )
+                
+                if not coordinate_description:
+                    logger.error(f"Failed to get coordinates for Figure {figure_number}")
+                    continue
+                
+                # Parse coordinates
+                coordinates = self._parse_coordinates_from_model(coordinate_description, parsing_model)
+                
+                if not coordinates:
+                    logger.error(f"Failed to parse coordinates for Figure {figure_number}")
+                    continue
+                
+                logger.info(f"Extracted coordinates for Figure {figure_number}: {coordinates}")
+                
+                # Crop the image
+                cropped_image = self._crop_image_with_coordinates(original_image_content, coordinates)
+                
+                # Generate unique filename
+                unique_id = str(uuid.uuid4())[:8]
+                filename = f"figure_{figure_number.replace('*', '').replace('#', '').strip()[-1]}_{unique_id}.png"
+                filepath = os.path.join(images_dir, filename)
+                
+                # Save the cropped image
+                with open(filepath, 'wb') as f:
+                    f.write(cropped_image)
+                
+                logger.info(f"Saved Figure {figure_number} to {filepath}")
+                
+                # Get absolute path and store for later insertion
+                absolute_path = os.path.abspath(filepath)
+                figure_paths.append(f"The path of {figure_number} is {absolute_path}")
+                
+            except Exception as e:
+                logger.error(f"Failed to process Figure {figure_number}: {str(e)}")
+                continue
+        
+        # Insert all figure paths just before [END COPY TEXT] marker
+        modified_result = result
+        if figure_paths:
+            paths_text = "\n\n" + "\n".join(figure_paths)
+            if "[END COPY TEXT]" in result:
+                modified_result = result.replace("[END COPY TEXT]", f"{paths_text}\n[END COPY TEXT]")
+            else:
+                # If no END marker, append at the end
+                modified_result = result + paths_text
+        else:
+            modified_result = result
+        
+        return modified_result
+    
     def convert(
         self, 
         file_path: str, 
@@ -784,7 +1178,10 @@ class MarkThat:
         max_retry: Optional[int] = None,
         additional_instructions: Optional[str] = None,
         clean_output: bool = True,
-        description_mode: bool = False
+        description_mode: bool = False, 
+        extract_figure = False,
+        coordinate_model: str = "google/gemini-2.0-flash", 
+        parsing_model: str = "google/gemini-2.5-flash-lite"
     ) -> List[str]:
         """
         Convert an image or PDF to markdown, or describe it.
@@ -796,6 +1193,9 @@ class MarkThat:
             additional_instructions: Additional instructions for the prompt
             clean_output: If True, removes markdown fences and START/END COPY TEXT markers
             description_mode: If True, generate a description instead of markdown
+            extract_figure: If True, extract figures and save them as separate images
+            coordinate_model: Model to use for figure coordinate extraction
+            parsing_model: Model to use for coordinate parsing
             
         Returns:
             For a single image: markdown string or description string
@@ -821,7 +1221,10 @@ class MarkThat:
                 content, 
                 format_options=format_options,
                 additional_instructions=additional_instructions,
-                description_mode=description_mode
+                description_mode=description_mode,
+                extract_figure=extract_figure,
+                coordinate_model=coordinate_model,
+                parsing_model=parsing_model
             )
             
             # If primary model failed and we have fallbacks
@@ -834,7 +1237,10 @@ class MarkThat:
                         content, 
                         format_options=format_options,
                         additional_instructions=additional_instructions,
-                        description_mode=description_mode
+                        description_mode=description_mode,
+                        extract_figure=extract_figure,
+                        coordinate_model=coordinate_model,
+                        parsing_model=parsing_model
                     )
                     if result:
                         logger.info(f"Fallback model {fallback_model} succeeded")
@@ -870,7 +1276,10 @@ class MarkThat:
         max_retry: Optional[int] = None,
         additional_instructions: Optional[str] = None,
         clean_output: bool = True,
-        description_mode: bool = False
+        description_mode: bool = False,
+        extract_figure = False,
+        coordinate_model: str = "gemini-2.0-flash-001", 
+        parsing_model: str = "gemini-2.5-flash-lite"
     ) -> List[str]:
         """
         Async version of convert that processes multiple content items concurrently.
@@ -883,6 +1292,9 @@ class MarkThat:
             additional_instructions: Additional instructions for the prompt
             clean_output: If True, removes markdown fences and START/END COPY TEXT markers
             description_mode: If True, generate a description instead of markdown
+            extract_figure: If True, extract figures and save them as separate images
+            coordinate_model: Model to use for figure coordinate extraction
+            parsing_model: Model to use for coordinate parsing
             
         Returns:
             For a single image: markdown string or description string
@@ -914,7 +1326,10 @@ class MarkThat:
                     content,
                     format_options,
                     additional_instructions,
-                    description_mode
+                    description_mode,
+                    extract_figure,
+                    coordinate_model,
+                    parsing_model
                 )
             
             # If primary model failed and we have fallbacks
@@ -930,7 +1345,10 @@ class MarkThat:
                             content,
                             format_options,
                             additional_instructions,
-                            description_mode
+                            description_mode,
+                            extract_figure,
+                            coordinate_model,
+                            parsing_model
                         )
                     if result:
                         logger.info(f"Fallback model {fallback_model} succeeded")
@@ -987,7 +1405,7 @@ class MarkThat:
         """
         return remove_markdown_and_markers(markdown)
     
-    def validate_markdown(self, markdown: str, description_mode: bool = False) -> Tuple[bool, str]:
+    def validate_markdown(self, markdown: str, description_mode: bool = False, extract_figure = False) -> Tuple[bool, str]:
         """
         Validate the generated markdown (or description) for structure and markers.
         
