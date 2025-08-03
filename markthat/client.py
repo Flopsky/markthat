@@ -1140,7 +1140,7 @@ class MarkThat:
                 
                 # Generate unique filename
                 unique_id = str(uuid.uuid4())[:8]
-                filename = f"figure_{figure_number.replace('*', '').replace('#', '').strip()[-1]}_{unique_id}.png"
+                filename = f"figure_{figure_number.replace('*', '').replace(':', '').replace('#', '').strip()[-1]}_{unique_id}.png"
                 filepath = os.path.join(images_dir, filename)
                 
                 # Save the cropped image
@@ -1419,14 +1419,15 @@ class MarkThat:
         if markdown == "Conversion failed with all models":
             logger.error(f"Generation failed: {markdown}")
             return False, "Generation failed"
-            
-        if not is_valid_markdown(markdown):
-            logger.error(f"Invalid markdown structure is_valid_markdown : {markdown}")
-            return False, "Invalid markdown structure"
-            
-        # Marker validation (applies to both modes)
-        if not has_copy_markers(markdown):
-            logger.error(f"Missing required START/END COPY TEXT markers: {markdown}")
-            return False, "Missing required START/END COPY TEXT markers"
+        
+        if (not is_valid_markdown(markdown)) and (not has_copy_markers(markdown)):
+            if not is_valid_markdown(markdown):
+                logger.error(f"Invalid markdown structure is_valid_markdown : {markdown}")
+                return False, "Invalid markdown structure"
+                
+            # Marker validation (applies to both modes)
+            if not has_copy_markers(markdown):
+                logger.error(f"Missing required START/END COPY TEXT markers: {markdown}")
+                return False, "Missing required START/END COPY TEXT markers"
             
         return True, "Validation successful"
