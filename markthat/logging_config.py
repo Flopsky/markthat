@@ -17,7 +17,9 @@ _LOGGER_NAME = "markthat"
 _DEFAULT_LEVEL = logging.INFO
 
 
-def configure(level: int = _DEFAULT_LEVEL, handlers: Optional[Iterable[logging.Handler]] = None) -> None:
+def configure(
+    level: int = _DEFAULT_LEVEL, handlers: Optional[Iterable[logging.Handler]] = None
+) -> None:
     """Configure *markthat* library logging.
 
     The function is intentionally *idempotent* – calling it multiple times will

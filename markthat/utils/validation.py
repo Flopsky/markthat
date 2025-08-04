@@ -18,9 +18,7 @@ logger = get_logger(__name__)
 START_MARKER: Final[str] = r"\[START COPY TEXT\]"
 END_MARKER: Final[str] = r"\[END COPY TEXT\]"
 
-_MARKERS_PATTERN: Final[Pattern[str]] = re.compile(
-    rf"{START_MARKER}(.*?){END_MARKER}", re.DOTALL
-)
+_MARKERS_PATTERN: Final[Pattern[str]] = re.compile(rf"{START_MARKER}(.*?){END_MARKER}", re.DOTALL)
 _CODE_FENCE_PATTERN: Final[Pattern[str]] = re.compile(r"```[a-zA-Z0-9]*\s*\n(.*?)```", re.DOTALL)
 
 
@@ -33,6 +31,7 @@ class ValidationResult:
 # ---------------------------------------------------------------------------
 # Public helpers
 # ---------------------------------------------------------------------------
+
 
 def is_valid_markdown(markdown: str) -> bool:
     """Very *rudimentary* Markdown validity check.
@@ -53,7 +52,10 @@ def is_valid_markdown(markdown: str) -> bool:
 
 def has_markers(markdown: str) -> bool:
     """Return *True* if both copy markers are present."""
-    return re.search(START_MARKER, markdown) is not None and re.search(END_MARKER, markdown) is not None
+    return (
+        re.search(START_MARKER, markdown) is not None
+        and re.search(END_MARKER, markdown) is not None
+    )
 
 
 def extract_between_markers(markdown: str) -> str:

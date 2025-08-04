@@ -1,8 +1,12 @@
-from markthat import MarkThat as MarkThatNew
+import asyncio
+import os
+
 from dotenv import load_dotenv
-import os, asyncio
+
+from markthat import MarkThat as MarkThatNew
 
 load_dotenv()
+
 
 def test_markthat_with_figure_extraction():
     try:
@@ -27,6 +31,7 @@ def test_markthat_with_figure_extraction():
     except Exception as e:
         print("New client failed with error: ", e)
 
+
 def test_markthat_without_figure_extraction():
     try:
         client = MarkThatNew(
@@ -45,6 +50,7 @@ def test_markthat_without_figure_extraction():
     except Exception as e:
         print("New client failed with error: ", e)
 
+
 if __name__ == "__main__":
     markthat_with_figure_extraction_result = test_markthat_with_figure_extraction()
     markthat_without_figure_extraction_result = test_markthat_without_figure_extraction()
@@ -52,5 +58,3 @@ if __name__ == "__main__":
     print("Markthat with figure extraction result: ", markthat_with_figure_extraction_result)
     print("\n\n\n\n\n\n\n")
     print("Markthat without figure extraction result: ", markthat_without_figure_extraction_result)
-    
-    

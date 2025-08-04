@@ -5,11 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "markthat"
 version = "0.1.0"
-description = " refactor of the MarkThat image-to-Markdown/description converter"
+description = "A Python library for converting images and PDFs to Markdown or generating rich image descriptions using state-of-the-art multimodal LLMs"
 readme = "README.md"
-authors = [{name = "OpenAI Assistant"}]
-license = {text = "MIT"}
+authors = [{name = "MarkThat Contributors"}]
+license = "MIT"
 requires-python = ">=3.9"
+
 dependencies = [
     "openai>=1.0.0",
     "anthropic>=0.60.0",
@@ -22,6 +23,10 @@ dependencies = [
     "Jinja2>=3.1.0",
 ]
 
+[tool.setuptools.packages.find]
+include = ["markthat*"]
+exclude = ["tests*", "env_dev*", "archive*"]
+
 [project.optional-dependencies]
 llm = [
     "google-generativeai",
@@ -32,10 +37,13 @@ llm = [
 
 dev = [
     "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
     "ruff>=0.4.0",
     "black>=24.0.0",
     "isort>=5.13.0",
     "pre-commit>=3.5.0",
+    "mypy>=1.5.0",
 ]
 
 [tool.black]
@@ -48,5 +56,14 @@ line_length = 100
 
 [tool.ruff]
 line-length = 100
-select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]  # Only essential errors, imports, and basic style
+ignore = [
+    "E501",  # Line too long (handled by black)
+    "UP006", # Use list instead of List (for compatibility)
+    "UP007", # Use X | Y syntax (for compatibility with Python < 3.10)
+    "UP035", # Import from typing (for compatibility)
+    "F401",  # Unused imports (often needed for re-exports)
+]
 

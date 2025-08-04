@@ -1,8 +1,8 @@
-from markthat_new.utils.validation import (
-    START_MARKER,
+from markthat.utils.validation import (
     END_MARKER,
-    is_valid_markdown,
+    START_MARKER,
     has_markers,
+    is_valid_markdown,
     validate,
 )
 

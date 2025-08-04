@@ -22,6 +22,7 @@ logger = get_logger(__name__)
 # Public helper
 # ---------------------------------------------------------------------------
 
+
 def load_file(file_path: str) -> List[bytes]:
     """Return a list of image bytes for *file_path*.
 
@@ -42,6 +43,7 @@ def load_file(file_path: str) -> List[bytes]:
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _load_image(path: str) -> bytes:
     logger.info("Loading image %s", path)

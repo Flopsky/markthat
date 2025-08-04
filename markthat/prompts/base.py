@@ -43,6 +43,7 @@ def load_template(name: str) -> jinja2.Template:  # noqa: D401 – simple return
 # Public helper – get_prompt_for_model
 # ---------------------------------------------------------------------------
 
+
 def get_prompt_for_model(
     model_name: str,
     *,

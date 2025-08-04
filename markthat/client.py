@@ -98,7 +98,9 @@ class MarkThat:
         self.api_key_figure_extractor = api_key_figure_extractor or api_key
         self.api_key_figure_parser = api_key_figure_parser or api_key
 
-        logger.info("MarkThat initialised – primary model: %s (provider=%s)", self.model, self.provider)
+        logger.info(
+            "MarkThat initialised – primary model: %s (provider=%s)", self.model, self.provider
+        )
         if self.fallback_models:
             logger.info("Fallback models: %s", ", ".join(self.fallback_models))
 
@@ -130,12 +132,14 @@ class MarkThat:
         results: List[str] = []
         for idx, image_bytes in enumerate(images):
             logger.info("Converting page %d/%d", idx + 1, len(images))
-            result = self._convert_single(image_bytes, format_options, additional_instructions, description_mode)
-            
+            result = self._convert_single(
+                image_bytes, format_options, additional_instructions, description_mode
+            )
+
             # Clean the output if requested
             if clean_output and result != "Conversion failed with all models":
                 result = strip_fences_and_markers(result)
-                
+
             results.append(result)
 
         # Optional figure extraction
@@ -223,6 +227,7 @@ class MarkThat:
             )
 
             if figures:
+
                 async def process_figure(fig):
                     page_num = fig.get("page_number", -1)
                     if 0 <= page_num < len(images):
@@ -295,7 +300,9 @@ class MarkThat:
         additional_instructions: Optional[str],
         description_mode: bool,
     ) -> Optional[str]:
-        provider_key = _infer_provider_from_model(model_name) if model_name != self.model else self.provider
+        provider_key = (
+            _infer_provider_from_model(model_name) if model_name != self.model else self.provider
+        )
         client = get_client(provider_key, api_key=self.api_key)
 
         failure_tracker = FailureTracker()
@@ -304,7 +311,9 @@ class MarkThat:
             prompts = get_prompt_for_model(
                 model_name,
                 format_options=format_options,
-                additional_instructions=_merge_instructions(additional_instructions, failure_tracker.feedback()),
+                additional_instructions=_merge_instructions(
+                    additional_instructions, failure_tracker.feedback()
+                ),
                 description_mode=description_mode,
             )
 
@@ -339,6 +348,7 @@ class MarkThat:
     def get_clean_markdown(self, markdown: str) -> str:
         """Extract content between START COPY TEXT and END COPY TEXT markers."""
         from .utils.validation import extract_between_markers
+
         return extract_between_markers(markdown)
 
     def get_clean_content(self, markdown: str) -> str:
@@ -350,19 +360,21 @@ class MarkThat:
         result = validate(markdown, description_mode=description_mode)
         return result.valid, result.message
 
-    def figure_extraction(self, paginated_results: List[str], model_name: str = "gemini-2.0-flash") -> List[Dict[str, Any]]:
+    def figure_extraction(
+        self, paginated_results: List[str], model_name: str = "gemini-2.0-flash"
+    ) -> List[Dict[str, Any]]:
         """Analyze paginated OCR results to identify pages containing figure illustrations."""
         from .figure_extraction import detect_figures
+
         return detect_figures(
-            paginated_results, 
-            model=model_name, 
-            api_key=self.api_key_figure_detector
+            paginated_results, model=model_name, api_key=self.api_key_figure_detector
         )
 
 
 # ---------------------------------------------------------------------------
 # Provider inference & unified API call
 # ---------------------------------------------------------------------------
+
 
 def _infer_provider_from_model(model_name: str) -> str:
     lower = model_name.lower()
@@ -382,6 +394,7 @@ def _infer_provider_from_model(model_name: str) -> str:
 # The implementation is a trimmed version of the one in the legacy client –
 # it only supports the subset required for this library (text generation with
 # optional single image input).
+
 
 def _make_unified_call(
     model: str,
@@ -406,7 +419,10 @@ def _make_unified_call(
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{b64_image}"},
+                        },
                     ],
                 },
             ]
@@ -421,12 +437,16 @@ def _make_unified_call(
     if "gemini" in lower:
         combined = f"{system_prompt}\n\n{user_prompt}"
         if image_bytes is not None:
-            return client.GenerativeModel(model).generate_content(
-                contents=[
-                    combined,
-                    {"mime_type": mime_type, "data": image_bytes},
-                ],
-            ).text  # type: ignore[return-value]
+            return (
+                client.GenerativeModel(model)
+                .generate_content(
+                    contents=[
+                        combined,
+                        {"mime_type": mime_type, "data": image_bytes},
+                    ],
+                )
+                .text
+            )  # type: ignore[return-value]
         return client.GenerativeModel(model).generate_content(contents=[combined]).text  # type: ignore
 
     if "gpt" in lower:
@@ -438,7 +458,10 @@ def _make_unified_call(
                     "role": "user",
                     "content": [
                         {"type": "text", "text": user_prompt},
-                        {"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{b64_image}"}},
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime_type};base64,{b64_image}"},
+                        },
                     ],
                 },
             ]
@@ -451,26 +474,41 @@ def _make_unified_call(
 
     if "claude" in lower:
         if image_bytes is not None:
-            return client.messages.create(
+            return (
+                client.messages.create(
+                    model=model,
+                    max_tokens=4000,
+                    system=system_prompt,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": user_prompt},
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": mime_type,
+                                        "data": b64_image,
+                                    },
+                                },
+                            ],
+                        }
+                    ],
+                )
+                .content[0]
+                .text
+            )  # type: ignore
+        return (
+            client.messages.create(
                 model=model,
                 max_tokens=4000,
                 system=system_prompt,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": user_prompt},
-                            {"type": "image", "source": {"type": "base64", "media_type": mime_type, "data": b64_image}},
-                        ],
-                    }
-                ],
-            ).content[0].text  # type: ignore
-        return client.messages.create(
-            model=model,
-            max_tokens=4000,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        ).content[0].text  # type: ignore
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+            .content[0]
+            .text
+        )  # type: ignore
 
     if "mistral" in lower:
         messages = [
@@ -485,6 +523,7 @@ def _make_unified_call(
 # ---------------------------------------------------------------------------
 # Utility helpers
 # ---------------------------------------------------------------------------
+
 
 def _merge_instructions(base: Optional[str], feedback: str) -> str:
     if base and feedback:

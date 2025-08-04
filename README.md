@@ -28,7 +28,7 @@ pip install markthat
 ```bash
 git clone https://github.com/your-repo/markthat.git
 cd markthat
-pip install -e .[dev]
+pip install -e .
 pre-commit install
 ```
 
