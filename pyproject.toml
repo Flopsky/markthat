@@ -67,3 +67,10 @@ ignore = [
     "F401",  # Unused imports (often needed for re-exports)
 ]
 
+[tool.bandit]
+# Security configuration
+exclude_dirs = ["tests", "archive"]
+skips = [
+    "B701",  # Jinja2 autoescape - false positive for prompt templates (not web content)
+]
+

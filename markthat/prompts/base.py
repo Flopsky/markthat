@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 
 PROMPT_TEMPLATES_DIR: Path = Path(__file__).with_suffix("").parent / "templates"
 
-_jinja_env = jinja2.Environment(
+_jinja_env = jinja2.Environment(  # nosec B701
     loader=jinja2.FileSystemLoader(str(PROMPT_TEMPLATES_DIR)),
     trim_blocks=True,
     lstrip_blocks=True,
