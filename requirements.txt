@@ -7,3 +7,5 @@ litellm==1.74.12
 pymupdf==1.26.3
 jinja2==3.1.6
 matplotlib==3.10.5
+gradio
+Pillow

@@ -1,293 +1,417 @@
 # MarkThat
 
-A Python module for converting images to Markdown or generating image descriptions using state-of-the-art multimodal LLMs.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![PyPI version](https://badge.fury.io/py/markthat.svg)](https://badge.fury.io/py/markthat)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-## Overview
+A  Python library for converting images and PDFs to Markdown or generating rich image descriptions using state-of-the-art multimodal LLMs.
 
-MarkThat is a robust tool that leverages various multimodal LLMs to convert visual content into Markdown format or generate rich textual descriptions. It includes an intelligent retry mechanism to ensure high-quality outputs.
+## 🚀 Features
 
-## Features
+- **Multiple Provider Support**: OpenAI, Anthropic, Google Gemini, Mistral, and OpenRouter
+- **Dual Mode Operation**: Convert to Markdown or generate detailed descriptions
+- **Advanced Figure Extraction**: Automatically detect, extract, and process figures from PDFs
+- **Robust Retry Logic**: Intelligent retry with fallback models and failure feedback
+- **Async Support**: Concurrent processing for improved performance
+- ** Architecture**: Type-safe, well-documented, and thoroughly tested
+- **Easy Integration**: Simple API with comprehensive configuration options
 
-- Support for multiple multimodal LLMs:
-  - Google Gemini 2.0 Flash
-  - OpenAI GPT-4.1
-  - Anthropic Claude Sonnet
-  - Mistral Medium
-  - **OpenRouter** (unified access to 300+ models)
-  - And more...
-- **Dual Mode**: Convert images to Markdown or generate detailed image descriptions.
-- Automatic retry with different models if conversion/description fails.
-- Configurable retry policies and failure feedback to guide retries.
-- Lightweight and easy to integrate.
-
-## Installation
+## 📦 Installation
 
 ```bash
 pip install markthat
 ```
 
-## Quick Start
+### Development Installation
+
+```bash
+git clone https://github.com/your-repo/markthat.git
+cd markthat
+pip install -e .
+pre-commit install
+```
+
+## 🏃 Quick Start
+
+### Basic Usage
 
 ```python
 from markthat import MarkThat
 
-# Initialize with your preferred model and API key
-converter = MarkThat(model="gemini-2.0-flash", api_key="YOUR_API_KEY")
-
-# Convert an image to markdown (default mode)
-markdown_output = converter.convert("path/to/image.jpg", max_retry=4)
-print(markdown_output)
-
-# Generate a description of an image
-description_output = converter.convert("path/to/image.jpg", description_mode=True, max_retry=4)
-print(description_output)
-
-# Convert a full PDF to markdown (each page processed separately)
-pdf_markdown_pages = converter.convert("path/to/pdf.pdf", max_retry=4)
-for page_md in pdf_markdown_pages:
-    print(page_md)
-
-# Generate descriptions for each page of a PDF
-pdf_description_pages = converter.convert("path/to/pdf.pdf", description_mode=True, max_retry=4)
-for page_desc in pdf_description_pages:
-    print(page_desc)
-
-# Using with fallbacks when each model fails all their retries
-converter_with_fallback = MarkThat(
-    model="gpt-4.1",
-    max_retry=4,
-    fallback_models=["claude-sonnet", "mistral-medium"],
+# Initialize with your preferred model
+converter = MarkThat(
+    model="gemini-2.0-flash-001",
+    provider="google",
     api_key="YOUR_API_KEY"
 )
-complex_image_md = converter_with_fallback.convert("path/to/complex_image.png")
-print(complex_image_md)
+
+# Convert image to markdown
+result = converter.convert("path/to/image.jpg")
+print(result[0])
+
+# Generate image description
+description = converter.convert(
+    "path/to/image.jpg", 
+    description_mode=True
+)
+print(description[0])
 ```
 
-## Async Usage
+### Updated Examples from `examples/basic_usage.py`
 
-For better performance when processing multiple content items (like multi-page PDFs), use the async version:
+```python
+from markthat import MarkThat
+from dotenv import load_dotenv
+import os
+import asyncio
+
+load_dotenv()
+
+def test_markthat_with_figure_extraction():
+    """Test MarkThat with advanced figure extraction capabilities."""
+    try:
+        client = MarkThat(
+            provider="gemini",
+            model="gemini-2.0-flash-001",
+            api_key=os.getenv("GEMINI_API_KEY"),
+            api_key_figure_detector=os.getenv("GEMINI_API_KEY"),
+            api_key_figure_extractor=os.getenv("GEMINI_API_KEY"),
+            api_key_figure_parser=os.getenv("GEMINI_API_KEY"),
+        )
+
+        result = asyncio.run(
+            client.async_convert(
+                "path/to/document.pdf",
+                extract_figure=True,
+                coordinate_model="gemini-2.0-flash-001",
+                parsing_model="gemini-2.5-flash-lite",
+            )
+        )
+        return result
+    except Exception as e:
+        print("Figure extraction failed:", e)
+        return None
+
+def test_markthat_without_figure_extraction():
+    """Test standard MarkThat conversion without figure extraction."""
+    try:
+        client = MarkThat(
+            provider="gemini",
+            model="gemini-2.0-flash-001",
+            api_key=os.getenv("GEMINI_API_KEY"),
+        )
+
+        result = asyncio.run(
+            client.async_convert(
+                "path/to/document.pdf",
+                extract_figure=False,
+            )
+        )
+        return result
+    except Exception as e:
+        print("Standard conversion failed:", e)
+        return None
+
+if __name__ == "__main__":
+    # Test both approaches
+    with_figures = test_markthat_with_figure_extraction()
+    without_figures = test_markthat_without_figure_extraction()
+    
+    print("With figure extraction:", with_figures)
+    print("Without figure extraction:", without_figures)
+```
+
+## 🔧 Advanced Configuration
+
+### Provider-Specific Setup
+
+```python
+from markthat import MarkThat, RetryPolicy
+
+# Custom retry policy
+retry_policy = RetryPolicy(
+    max_attempts=5,
+    timeout_seconds=30,
+    backoff_factor=1.5
+)
+
+# Multi-provider setup with fallbacks
+converter = MarkThat(
+    model="gpt-4o",
+    provider="openai",
+    fallback_models=["claude-3-5-sonnet-20241022", "gemini-2.0-flash-001"],
+    retry_policy=retry_policy,
+    api_key="YOUR_OPENAI_KEY"
+)
+```
+
+### OpenRouter Integration
+
+```python
+# Access 300+ models through OpenRouter
+converter = MarkThat(
+    model="anthropic/claude-3.5-sonnet",
+    provider="openrouter",
+    api_key="YOUR_OPENROUTER_KEY"
+)
+
+# Or use model path auto-detection
+converter = MarkThat(
+    model="openai/gpt-4o",  # Automatically uses OpenRouter
+    api_key="YOUR_OPENROUTER_KEY"
+)
+```
+
+## 🎯 Figure Extraction Pipeline
+
+MarkThat includes a sophisticated figure extraction system for PDFs:
+
+```python
+converter = MarkThat(
+    model="gemini-2.0-flash-001",
+    api_key_figure_detector="DETECTOR_KEY",
+    api_key_figure_extractor="EXTRACTOR_KEY", 
+    api_key_figure_parser="PARSER_KEY"
+)
+
+results = await converter.async_convert(
+    "research_paper.pdf",
+    extract_figure=True,
+    figure_detector_model="gemini-2.0-flash",
+    coordinate_model="gemini-2.0-flash-001",
+    parsing_model="gemini-2.5-flash-lite"
+)
+```
+
+### How Figure Extraction Works
+
+1. **Detection**: Analyzes document content to identify pages with figures
+2. **Coordinate Mapping**: Overlays coordinate grids and identifies figure boundaries  
+3. **Extraction**: Crops figures using precise coordinate mapping
+4. **Integration**: Embeds figure paths into the final markdown output
+
+## ⚡ Async Processing
+
+For optimal performance with multi-page documents:
 
 ```python
 import asyncio
 from markthat import MarkThat
 
-async def main():
-    # Initialize converter
-    converter = MarkThat(
-        model="gemini-2.0-flash", 
-        api_key="YOUR_API_KEY"
-    )
+async def process_document():
+    converter = MarkThat(model="gemini-2.0-flash-001")
     
-    # Convert a multi-page PDF asynchronously (pages processed concurrently)
-    pdf_results = await converter.async_convert("path/to/document.pdf")
-    for i, page_markdown in enumerate(pdf_results):
-        print(f"Page {i+1}:\n{page_markdown}\n")
+    # Process pages concurrently
+    results = await converter.async_convert("large_document.pdf")
     
-    # Generate descriptions for PDF pages concurrently
-    pdf_descriptions = await converter.async_convert(
-        "path/to/document.pdf", 
-        description_mode=True
-    )
-    for i, description in enumerate(pdf_descriptions):
-        print(f"Page {i+1} description:\n{description}\n")
-    
-    # Single image (still works but no concurrency benefit)
-    image_result = await converter.async_convert("path/to/image.jpg")
-    print(image_result[0])  # async_convert always returns a list
+    for i, page_content in enumerate(results):
+        print(f"Page {i+1}: {len(page_content)} characters")
 
-# Run the async function
-asyncio.run(main())
+asyncio.run(process_document())
 ```
 
-**Benefits of Async Mode:**
-- **Concurrent Processing**: Multi-page PDFs are processed simultaneously instead of sequentially
-- **Better Performance**: Significantly faster for documents with multiple pages
-- **Same API**: Identical parameters and behavior as the synchronous `convert` method
-- **Thread-Safe**: Uses thread pools for the actual API calls while maintaining async benefits
-
-## Provider Examples
-
-### Direct Provider Access
-
-Use specific providers directly with their native APIs:
-
-```python
-from markthat import MarkThat
-
-# OpenAI GPT-4o
-openai_converter = MarkThat(
-    model="gpt-4o",
-    provider="openai",
-    api_key="YOUR_OPENAI_API_KEY"
-)
-
-# Anthropic Claude
-claude_converter = MarkThat(
-    model="claude-3-5-sonnet-20241022",
-    provider="anthropic", 
-    api_key="YOUR_ANTHROPIC_API_KEY"
-)
-
-# Google Gemini
-gemini_converter = MarkThat(
-    model="gemini-2.0-flash-exp",
-    provider="google",
-    api_key="YOUR_GEMINI_API_KEY"
-)
-
-# Mistral
-mistral_converter = MarkThat(
-    model="mistral-large-latest",
-    provider="mistral",
-    api_key="YOUR_MISTRAL_API_KEY"
-)
-
-# Convert image with any provider
-result = openai_converter.convert("path/to/image.jpg")
-print(result)
-```
-
-### OpenRouter - Unified Provider Access
-
-Access 300+ models from multiple providers through a single API:
-
-```python
-from markthat import MarkThat
-
-# OpenRouter automatically detected for models with "/" format
-openrouter_converter = MarkThat(
-    model="anthropic/claude-3.5-sonnet",  # Auto-detects OpenRouter
-    api_key="YOUR_OPENROUTER_API_KEY"
-)
-
-# Or explicitly specify OpenRouter provider
-explicit_converter = MarkThat(
-    model="openai/gpt-4o",
-    provider="openrouter",
-    api_key="YOUR_OPENROUTER_API_KEY"
-)
-
-# Popular OpenRouter models
-models = [
-    "openai/gpt-4o",                    # OpenAI GPT-4o
-    "anthropic/claude-3.5-sonnet",      # Anthropic Claude 3.5 Sonnet
-    "google/gemini-pro-vision",         # Google Gemini Pro Vision
-    "meta-llama/llama-3.2-90b-vision", # Meta Llama Vision
-    "qwen/qwen-2-vl-72b-instruct"      # Qwen Vision
-]
-
-# Multi-provider fallbacks through OpenRouter
-multi_provider_converter = MarkThat(
-    model="anthropic/claude-3.5-sonnet",
-    fallback_models=["openai/gpt-4o", "google/gemini-pro-vision"],
-    api_key="YOUR_OPENROUTER_API_KEY"
-)
-
-# Convert image
-result = openrouter_converter.convert("path/to/image.jpg")
-print(result)
-```
-
-## Advanced Usage
-
-```python
-from markthat import MarkThat, RetryPolicy
-
-# Configure custom retry policy
-policy = RetryPolicy(
-    max_attempts=5,
-    timeout=30,
-    backoff_factor=1.5
-)
-
-converter = MarkThat(
-    model="gemini-2.0-flash",
-    fallback_models=["gpt-4.1", "claude-sonnet"],
-    retry_policy=policy,
-    api_key="YOUR_API_KEY"
-)
-
-# Convert with additional options (e.g., for Markdown output)
-markdown_with_options = converter.convert(
-    "path/to/image.jpg",
-    format_options={"include_tables": True, "code_syntax_highlighting": True},
-    additional_instructions="Please ensure all tables are well-formatted."
-)
-print(markdown_with_options)
-
-# Generate description with additional instructions
-description_with_instructions = converter.convert(
-    "path/to/image.jpg",
-    description_mode=True,
-    additional_instructions="Focus on the artistic style of the image."
-)
-print(description_with_instructions)
-
-# Get raw output and clean it manually
-raw_output = converter.convert("path/to/image.jpg", clean_output=False)
-# ... inspect raw_output ...
-clean_content = converter.get_clean_content(raw_output) # Removes markers and markdown fences
-print(clean_content)
-
-# Validate output
-is_valid, message = converter.validate_markdown(raw_output) # Checks for markers and markdown structure (if not description_mode)
-print(f"Is valid: {is_valid}, Message: {message}")
-```
-
-## Environment Variables
-
-Set your API keys as environment variables for automatic detection:
+## 🔑 Environment Variables
 
 ```bash
-# Direct providers
-export OPENAI_API_KEY="your_openai_api_key"
-export ANTHROPIC_API_KEY="your_anthropic_api_key"
-export GEMINI_API_KEY="your_gemini_api_key"
-export MISTRAL_API_KEY="your_mistral_api_key"
+# Primary providers
+export OPENAI_API_KEY="your_openai_key"
+export ANTHROPIC_API_KEY="your_anthropic_key" 
+export GEMINI_API_KEY="your_google_key"
+export MISTRAL_API_KEY="your_mistral_key"
 
-# OpenRouter (unified access)
-export OPENROUTER_API_KEY="your_openrouter_api_key"
+# Unified access
+export OPENROUTER_API_KEY="your_openrouter_key"
+
+# Figure extraction (can use different keys for different models)
+export FIGURE_DETECTOR_KEY="detector_api_key"
+export FIGURE_EXTRACTOR_KEY="extractor_api_key"
+export FIGURE_PARSER_KEY="parser_api_key"
 ```
 
-Then use without specifying API keys:
+## 🧪 Testing
+
+```bash
+# Run the test suite
+pytest
+
+# Run with coverage
+pytest --cov=markthat
+
+# Run specific test categories
+pytest tests/test_validation.py
+pytest tests/test_providers.py
+```
+
+## 📁 Project Structure
+
+```
+markthat/
+├── markthat/
+│   ├── __init__.py          # Public API
+│   ├── client.py            # Main MarkThat class
+│   ├── providers.py         # LLM provider abstractions
+│   ├── file_processor.py    # PDF/image loading
+│   ├── image_processing.py  # Image manipulation
+│   ├── figure_extraction.py # Figure detection & extraction
+│   ├── prompts/             # Prompt templates & utilities
+│   ├── utils/               # Validation & helpers
+│   ├── exceptions.py        # Custom exceptions
+│   └── logging_config.py    # Logging setup
+├── tests/                   # Test suite
+├── examples/                # Usage examples
+├── pyproject.toml          # Project metadata
+└── README.md               # This file
+```
+
+## 🛠️ Development
+
+### Code Quality
+
+This project uses modern Python development practices:
+
+- **Type Hints**: Full type annotations with mypy validation
+- **Code Formatting**: Black for consistent code style
+- **Linting**: Ruff for fast, comprehensive linting
+- **Import Sorting**: isort for organized imports
+- **Pre-commit Hooks**: Automated quality checks
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Make your changes with proper tests
+4. Run quality checks: `pre-commit run --all-files`
+5. Submit a pull request
+
+### Development Setup
+
+```bash
+# Install development dependencies
+pip install -e .[dev]
+
+# Set up pre-commit hooks
+pre-commit install
+
+# Run quality checks
+black .
+ruff check .
+isort .
+mypy markthat
+```
+
+## 📄 API Reference
+
+### MarkThat Class
+
+```python
+class MarkThat:
+    def __init__(
+        self,
+        *,
+        model: str,
+        provider: Optional[str] = None,
+        fallback_models: Optional[Sequence[str]] = None,
+        retry_policy: Optional[RetryPolicy] = None,
+        api_key: Optional[str] = None,
+    ) -> None: ...
+
+    def convert(
+        self,
+        file_path: str,
+        *,
+        format_options: Optional[Dict[str, Any]] = None,
+        additional_instructions: Optional[str] = None,
+        description_mode: bool = False,
+    ) -> List[str]: ...
+
+    async def async_convert(
+        self,
+        file_path: str,
+        *,
+        format_options: Optional[Dict[str, Any]] = None,
+        additional_instructions: Optional[str] = None,
+        description_mode: bool = False,
+    ) -> List[str]: ...
+```
+
+### RetryPolicy Configuration
+
+```python
+@dataclass
+class RetryPolicy:
+    max_attempts: int = 3
+    timeout_seconds: int = 30
+    backoff_factor: float = 1.0
+```
+
+## 🏆 Supported Models
+
+### Direct Provider Access
+- **OpenAI**: gpt-4o, gpt-4-turbo, gpt-4o-mini
+- **Anthropic**: claude-3-5-sonnet-20241022, claude-3-opus, claude-3-haiku
+- **Google**: gemini-2.0-flash-001, gemini-1.5-pro, gemini-1.5-flash
+- **Mistral**: mistral-large-latest, mistral-medium, mistral-small
+
+### OpenRouter Models (300+)
+- **Meta**: meta-llama/llama-3.2-90b-vision
+- **Qwen**: qwen/qwen-2-vl-72b-instruct  
+- **Many more**: Access the full catalog at [OpenRouter](https://openrouter.ai)
+
+## 🐛 Error Handling
+
+MarkThat provides comprehensive error handling:
 
 ```python
 from markthat import MarkThat
+from markthat.exceptions import ProviderInitializationError, ConversionError
 
-# Uses environment variables automatically
-converter = MarkThat(model="anthropic/claude-3.5-sonnet")
-result = converter.convert("image.jpg")
+try:
+    converter = MarkThat(model="invalid-model")
+except ProviderInitializationError as e:
+    print(f"Provider setup failed: {e}")
+
+try:
+    result = converter.convert("image.jpg")
+except ConversionError as e:
+    print(f"Conversion failed: {e}")
 ```
 
-## OpenRouter Benefits
+## 📊 Performance Tips
 
-- **Unified API**: Access models from OpenAI, Anthropic, Google, and more through one interface
-- **Cost Optimization**: Compare costs across providers and choose the most economical option
-- **Model Availability**: Automatic fallback when your primary model is unavailable
-- **300+ Models**: Access to the largest collection of multimodal LLMs
-- **Enhanced Features**: Support for advanced features like PDF processing with OCR
+1. **Use Async for Multiple Pages**: `async_convert()` processes pages concurrently
+2. **Configure Appropriate Timeouts**: Balance speed vs. reliability
+3. **Choose the Right Model**: Faster models for simple tasks, powerful models for complex content
+4. **Leverage Fallbacks**: Set up model hierarchies for reliability
 
-## TODO 
+## 📈 Roadmap
 
-- [x] Init the first feature: convert images to markdown with only images
-- [x] Add support for pdfs
-- [x] Add support for fallback on other models
-- [x] Add support for custom retry policies
-- [x] Add support for more models
-- [x] Add OpenRouter support for unified provider access
-- [ ] Add support for more file formats (e.g., TIFF, WEBP)
-- [ ] Add support for more options (e.g., custom prompt templates per call)
-- [ ] Implement `description_mode` for image descriptions
-- [x] Add detailed logging for failures and retries
-- [x] Implement `[START COPY TEXT]` and `[END COPY TEXT]` marker handling
-- [ ] Add OpenRouter PDF processing with OCR engines
-- [ ] Add cost tracking and optimization features
+- [x] ✅ Multi-provider LLM support
+- [x] ✅ PDF processing with figure extraction
+- [x] ✅ Async processing capabilities
+- [x] ✅ Comprehensive retry logic
+- [x] ✅ Type-safe,  architecture
+- [ ] 🔄 Additional file format support (TIFF, WEBP)
+- [ ] 🔄 Cost tracking and optimization
+- [ ] 🔄 Batch processing API
+- [ ] 🔄 Custom prompt template system
 
+## 📜 License
 
-## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-MIT
+## 🙏 Acknowledgments
 
-## Contributing
+- Built with modern Python best practices
+- Leverages state-of-the-art multimodal LLMs
+- Inspired by the need for robust document processing tools
 
-Contributions are welcome! Please feel free to submit a Pull Request. 
+## 💬 Support
+
+- **Issues**: [GitHub Issues](https://github.com/your-repo/markthat/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/your-repo/markthat/discussions)
+- **Documentation**: [Full Documentation](https://markthat.readthedocs.io)
+
+---
+
+**MarkThat** - Transform visual content into structured text with the power of AI 🚀
