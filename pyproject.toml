@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "markthat"
-version = "0.1.0"
+version = "1.2.1"
 description = "A Python library for converting images and PDFs to Markdown or generating rich image descriptions using state-of-the-art multimodal LLMs"
 readme = "README.md"
 authors = [{name = "MarkThat Contributors"}]
 license = "MIT"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 
 dependencies = [
     "openai>=1.0.0",
