@@ -5,40 +5,75 @@ on:
     types: [published]
 
 jobs:
-  deploy:
+  build:
+    name: Build distribution 📦
     runs-on: ubuntu-latest
-    environment: release
-    permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
-
+    
     steps:
     - uses: actions/checkout@v4
-
+    
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
         python-version: "3.12"
-
-    - name: Install dependencies
+    
+    - name: Install build dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install build twine
+        pip install build
+    
+    - name: Build distribution packages
+      run: python -m build
+    
+    - name: Store the distribution packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
 
-    - name: Build package
-      run: |
-        python -m build
+  publish-to-pypi:
+    name: Publish to PyPI 🚀
+    if: github.repository_owner == 'Flopsky'  # Only publish from the main repo
+    needs:
+    - build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/markthat
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+      contents: read   # For downloading artifacts
+    
+    steps:
+    - name: Download all the dists
+      uses: actions/download-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
+    
+    - name: Publish distribution 📦 to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
 
-    - name: Publish package to PyPI
+  publish-to-testpypi:
+    name: Publish to TestPyPI 🧪
+    needs:
+    - build
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/markthat
+    permissions:
+      id-token: write  # IMPORTANT: mandatory for trusted publishing
+      contents: read   # For downloading artifacts
+    
+    steps:
+    - name: Download all the dists
+      uses: actions/download-artifact@v4
+      with:
+        name: python-package-distributions
+        path: dist/
+    
+    - name: Publish distribution 📦 to TestPyPI
       uses: pypa/gh-action-pypi-publish@release/v1
       with:
-        password: ${{ secrets.PYPI_API_TOKEN }}
-
-    - name: Create GitHub Release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref_name }}
-        release_name: Release ${{ github.ref_name }}
-        draft: false
-        prerelease: false
+        repository-url: https://test.pypi.org/legacy/
