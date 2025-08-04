@@ -54,26 +54,26 @@ jobs:
     - name: Publish distribution 📦 to PyPI
       uses: pypa/gh-action-pypi-publish@release/v1
 
-  publish-to-testpypi:
-    name: Publish to TestPyPI 🧪
-    needs:
-    - build
-    runs-on: ubuntu-latest
-    environment:
-      name: testpypi
-      url: https://test.pypi.org/p/markthat
-    permissions:
-      id-token: write  # IMPORTANT: mandatory for trusted publishing
-      contents: read   # For downloading artifacts
+  # publish-to-testpypi:
+  #   name: Publish to TestPyPI 🧪
+  #   needs:
+  #   - build
+  #   runs-on: ubuntu-latest
+  #   environment:
+  #     name: testpypi
+  #     url: https://test.pypi.org/p/markthat
+  #   permissions:
+  #     id-token: write  # IMPORTANT: mandatory for trusted publishing
+  #     contents: read   # For downloading artifacts
     
-    steps:
-    - name: Download all the dists
-      uses: actions/download-artifact@v4
-      with:
-        name: python-package-distributions
-        path: dist/
+  #   steps:
+  #   - name: Download all the dists
+  #     uses: actions/download-artifact@v4
+  #     with:
+  #       name: python-package-distributions
+  #       path: dist/
     
-    - name: Publish distribution 📦 to TestPyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
-      with:
-        repository-url: https://test.pypi.org/legacy/
+  #   - name: Publish distribution 📦 to TestPyPI
+  #     uses: pypa/gh-action-pypi-publish@release/v1
+  #     with:
+  #       repository-url: https://test.pypi.org/legacy/

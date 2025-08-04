@@ -42,7 +42,7 @@ from markthat import MarkThat
 # Initialize with your preferred model
 converter = MarkThat(
     model="gemini-2.0-flash-001",
-    provider="google",
+    provider="gemini",
     api_key="YOUR_API_KEY"
 )
 
