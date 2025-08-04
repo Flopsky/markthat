@@ -17,13 +17,13 @@ A  Python library for converting images and PDFs to Markdown or generating rich 
 - ** Architecture**: Type-safe, well-documented, and thoroughly tested
 - **Easy Integration**: Simple API with comprehensive configuration options
 
-## 📦 Installation
+## 📦 Option 1: Install from PyPI
 
 ```bash
 pip install markthat
 ```
 
-### Development Installation
+### Option 2: Development Installation
 
 ```bash
 git clone https://github.com/your-repo/markthat.git
