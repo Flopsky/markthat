@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "markthat"
-version = "1.2.3"
+version = "1.2.6"
 description = "A Python library for converting images and PDFs to Markdown or generating rich image descriptions using state-of-the-art multimodal LLMs"
 readme = "README.md"
 authors = [{name = "MarkThat Contributors"}]
