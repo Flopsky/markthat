@@ -15,8 +15,11 @@ except _metadata.PackageNotFoundError:  # pragma: no cover – during local dev
     __version__ = "0.0.0.dev0"
 
 from .client import MarkThat  # noqa: E402  (import after version determination)
+from .langchain_providers import get_langchain_provider, unified_langchain_call
 
 __all__ = [
     "MarkThat",
     "__version__",
+    "unified_langchain_call",
+    "get_langchain_provider",
 ]

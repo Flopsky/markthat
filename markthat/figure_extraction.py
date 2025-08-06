@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
 from .image_processing import add_coordinate_grid, crop_with_coordinates
+from .langchain_providers import unified_langchain_call
 from .logging_config import get_logger
 from .prompts import get_prompt_for_model, load_template
 from .providers import get_client
@@ -53,7 +54,7 @@ def detect_figures(
 
     try:
         provider_key = _infer_provider_from_model(model)
-        client = get_client(provider_key, api_key=api_key)
+        get_client(provider_key, api_key=api_key)
 
         # Use EXACT same prompts as original
         system_prompt = """You are an expert at analyzing document content to identify pages that contain figure illustrations (not just figure references or captions).
@@ -77,7 +78,12 @@ Only include pages that actually contain the visual figure illustration itself. 
 
 Return only the JSON array as specified in the system prompt."""
 
-        response = _call_llm(model, client, system_prompt, user_prompt)
+        response = unified_langchain_call(
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            api_key=api_key,
+        )
 
         # Parse JSON response - EXACTLY like original
         json_str = response.replace("```json", "").replace("```", "").strip()
@@ -162,6 +168,10 @@ def extract_single_figure(
 # ---------------------------------------------------------------------------
 
 
+# Legacy unified call functions have been replaced with LangChain implementation
+# in langchain_providers.py - unified_langchain_call()
+
+
 def _infer_provider_from_model(model_name: str) -> str:
     lower = model_name.lower()
     if "/" in lower:
@@ -175,113 +185,6 @@ def _infer_provider_from_model(model_name: str) -> str:
     if "mistral" in lower:
         return "mistral"
     raise ValueError(f"Cannot infer provider from {model_name}")
-
-
-def _call_llm(
-    model: str,
-    client: Any,
-    system_prompt: str,
-    user_prompt: str,
-    *,
-    image: bytes | None = None,
-    mime_type: str = "image/png",
-) -> str:
-    """Unified call for different provider SDKs (subset required for extraction)."""
-
-    if "/" in model:  # OpenRouter uses OpenAI-compatible schema
-        return (
-            client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-            )
-            .choices[0]
-            .message.content
-        )  # type: ignore[return-value]
-
-    lower = model.lower()
-    if "gemini" in lower:
-        combined = f"{system_prompt}\n\n{user_prompt}"
-        if image is not None:
-            response = client.GenerativeModel(model).generate_content(
-                contents=[
-                    combined,
-                    {"mime_type": mime_type, "data": image},
-                ],
-            )
-            return response.text  # type: ignore[return-value]
-        return client.GenerativeModel(model).generate_content(contents=[combined]).text  # type: ignore
-
-    if "gpt" in lower:
-        messages: List[Any]
-        if image is not None:
-            import base64
-
-            b64 = base64.b64encode(image).decode()
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
-                        },
-                    ],
-                },
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-        return client.chat.completions.create(model=model, messages=messages).choices[0].message.content  # type: ignore
-
-    if "claude" in lower:
-        if image is not None:
-            import base64
-
-            b64 = base64.b64encode(image).decode()
-            response = client.messages.create(
-                model=model,
-                max_tokens=4000,
-                system=system_prompt,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": user_prompt},
-                            {
-                                "type": "image",
-                                "source": {"type": "base64", "media_type": mime_type, "data": b64},
-                            },
-                        ],
-                    }
-                ],
-            )
-            return response.content[0].text  # type: ignore[return-value]
-        return (
-            client.messages.create(
-                model=model,
-                max_tokens=4000,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            .content[0]
-            .text
-        )  # type: ignore
-
-    if "mistral" in lower:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        return client.chat.complete(model=model, messages=messages).choices[0].message.content  # type: ignore
-
-    raise ValueError(f"Unsupported model {model}")
 
 
 # ------------------------------------------------------------------
@@ -323,7 +226,7 @@ def _get_coordinates_llm(
         logger.info(f"Getting coordinates for figure: {prompt} using model: {model}")
 
         provider = _infer_provider_from_model(model)
-        client = get_client(provider, api_key=api_key)
+        get_client(provider, api_key=api_key)
 
         sys_template = load_template("system_prompt_extract_figure.j2")
         user_template = load_template("user_prompt_extract_figure.j2")
@@ -331,13 +234,13 @@ def _get_coordinates_llm(
         system_prompt = sys_template.render()
         user_prompt = user_template.render(prompt=prompt)
 
-        result = _call_llm(
-            model,
-            client,
-            system_prompt,
-            user_prompt,
-            image=image_with_grid,
+        result = unified_langchain_call(
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            image_bytes=image_with_grid,
             mime_type="image/png",
+            api_key=api_key,
         )
 
         logger.info(f"Response from {model} for figure {prompt}: {result}")
@@ -355,7 +258,7 @@ def _parse_coordinates_llm(
         logger.info(f"Parsing coordinates using model: {model}")
 
         provider = _infer_provider_from_model(model)
-        client = get_client(provider, api_key=api_key)
+        get_client(provider, api_key=api_key)
 
         sys_template = load_template("system_prompt_get_coordinates.j2")
         user_template = load_template("user_prompt_get_coordinates.j2")
@@ -363,7 +266,12 @@ def _parse_coordinates_llm(
         system_prompt = sys_template.render()
         user_prompt = user_template.render(model_response=description)
 
-        response = _call_llm(model, client, system_prompt, user_prompt)
+        response = unified_langchain_call(
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            api_key=api_key,
+        )
 
         # Parse JSON response - EXACTLY like original
         json_str = response.replace("```json", "").replace("```", "").strip()

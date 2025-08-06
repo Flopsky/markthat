@@ -73,14 +73,12 @@ def strip_fences_and_markers(markdown: str) -> str:
     logger.debug("Stripping fences/markers from markdown length %d", len(markdown))
 
     # 1) Extract marker content first if markers exist
-    content = extract_between_markers(markdown)
+    content = extract_between_markers(markdown).replace("```markdown", "")
 
     # 2) Remove *outermost* code fences (the first and last occurrence)
-    if "```" in content:
-        first = content.find("```")
-        last = content.rfind("```")
-        if first != last:
-            content = content[first + 3 : last]
+    # if "```" in content:
+    #     last = content.rfind("```")
+    #     content = content[0: last]
     return content.strip()
 
 

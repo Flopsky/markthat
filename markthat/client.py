@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from .file_processor import load_file
+from .langchain_providers import unified_langchain_call
 from .logging_config import get_logger
 from .prompts import get_prompt_for_model
 from .providers import get_client
@@ -303,7 +304,7 @@ class MarkThat:
         provider_key = (
             _infer_provider_from_model(model_name) if model_name != self.model else self.provider
         )
-        client = get_client(provider_key, api_key=self.api_key)
+        get_client(provider_key, api_key=self.api_key)
 
         failure_tracker = FailureTracker()
         for attempt in range(1, self.retry_policy.max_attempts + 1):
@@ -318,12 +319,12 @@ class MarkThat:
             )
 
             try:
-                output = _make_unified_call(
-                    model_name,
-                    client,
-                    prompts["system_prompt"],
-                    prompts["user_prompt"],
-                    image_bytes,
+                output = unified_langchain_call(
+                    model=model_name,
+                    system_prompt=prompts["system_prompt"],
+                    user_prompt=prompts["user_prompt"],
+                    image_bytes=image_bytes,
+                    api_key=self.api_key,
                 )
                 val: ValidationResult = validate(output, description_mode=description_mode)
                 if val.valid:
@@ -391,133 +392,8 @@ def _infer_provider_from_model(model_name: str) -> str:
     raise ValueError(f"Cannot infer provider from {model_name}")
 
 
-# The implementation is a trimmed version of the one in the legacy client –
-# it only supports the subset required for this library (text generation with
-# optional single image input).
-
-
-def _make_unified_call(
-    model: str,
-    client: Any,
-    system_prompt: str,
-    user_prompt: str,
-    image_bytes: bytes | None = None,
-    mime_type: str = "image/jpeg",
-) -> str:
-    """Provider-agnostic chat completion."""
-
-    if image_bytes is not None:
-        b64_image = base64.b64encode(image_bytes).decode()
-
-    # OpenRouter (OpenAI compatible)
-    if "/" in model:
-        messages: List[Any]
-        if image_bytes is not None:
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{b64_image}"},
-                        },
-                    ],
-                },
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-        return client.chat.completions.create(model=model, messages=messages).choices[0].message.content  # type: ignore
-
-    lower = model.lower()
-    if "gemini" in lower:
-        combined = f"{system_prompt}\n\n{user_prompt}"
-        if image_bytes is not None:
-            return (
-                client.GenerativeModel(model)
-                .generate_content(
-                    contents=[
-                        combined,
-                        {"mime_type": mime_type, "data": image_bytes},
-                    ],
-                )
-                .text
-            )  # type: ignore[return-value]
-        return client.GenerativeModel(model).generate_content(contents=[combined]).text  # type: ignore
-
-    if "gpt" in lower:
-        messages: List[Any]
-        if image_bytes is not None:
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": user_prompt},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:{mime_type};base64,{b64_image}"},
-                        },
-                    ],
-                },
-            ]
-        else:
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-        return client.chat.completions.create(model=model, messages=messages).choices[0].message.content  # type: ignore
-
-    if "claude" in lower:
-        if image_bytes is not None:
-            return (
-                client.messages.create(
-                    model=model,
-                    max_tokens=4000,
-                    system=system_prompt,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": [
-                                {"type": "text", "text": user_prompt},
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": mime_type,
-                                        "data": b64_image,
-                                    },
-                                },
-                            ],
-                        }
-                    ],
-                )
-                .content[0]
-                .text
-            )  # type: ignore
-        return (
-            client.messages.create(
-                model=model,
-                max_tokens=4000,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            .content[0]
-            .text
-        )  # type: ignore
-
-    if "mistral" in lower:
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ]
-        return client.chat.complete(model=model, messages=messages).choices[0].message.content  # type: ignore
-
-    raise ValueError(f"Unsupported model {model}")
+# Legacy unified call function has been replaced with LangChain implementation
+# in langchain_providers.py - unified_langchain_call()
 
 
 # ---------------------------------------------------------------------------
