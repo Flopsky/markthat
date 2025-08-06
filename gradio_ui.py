@@ -302,6 +302,9 @@ async def process_file_async(
             "model": model,
             "provider": provider,
             "api_key": api_key,
+            "api_key_figure_detector": api_key,
+            "api_key_figure_extractor": api_key,
+            "api_key_figure_parser": api_key,
         }
 
         # Add temperature if specified
@@ -317,6 +320,8 @@ async def process_file_async(
             "file_path": file_path,
             "description_mode": description_mode,
             "extract_figure": extract_figures,
+            "coordinate_model": "gemini-2.0-flash-001",
+            "parsing_model": "gemini-2.5-flash-lite",
             "format_options": format_options if any(format_options.values()) else None,
         }
 

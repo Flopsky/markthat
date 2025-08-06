@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "markthat"
-version = "1.2.9"
+version = "1.2.10"
 description = "A Python library for converting images and PDFs to Markdown or generating rich image descriptions using state-of-the-art multimodal LLMs"
 readme = "README.md"
 authors = [{name = "MarkThat Contributors"}]
@@ -21,6 +21,11 @@ dependencies = [
     "matplotlib>=3.7.0",
     "Pillow>=10.0.0",
     "Jinja2>=3.1.0",
+    "langchain>=0.3.27",
+    "langchain-openai>=0.3.28",
+    "langchain-anthropic>=0.3.18",
+    "langchain-google-genai>=2.0.10",
+    "langchain-mistralai>=0.2.11",
 ]
 
 [tool.setuptools.packages.find]
@@ -36,6 +41,14 @@ llm = [
     "openai",
     "anthropic",
     "mistralai",
+]
+
+langchain = [
+    "langchain>=0.3.27",
+    "langchain-openai>=0.3.28",
+    "langchain-anthropic>=0.3.18",
+    "langchain-google-genai>=2.0.10",
+    "langchain-mistralai>=0.2.11",
 ]
 
 dev = [
