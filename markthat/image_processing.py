@@ -109,6 +109,14 @@ def crop_with_coordinates(image_bytes: bytes, coordinates: Dict[str, Tuple[int, 
     min_y = max(0, min(y_coords))
     max_y = min(height, max(y_coords))
 
+    # Ensure we have a valid crop area
+    if min_x >= max_x or min_y >= max_y:
+        logger.warning(
+            f"Invalid crop coordinates: min_x={min_x}, max_x={max_x}, min_y={min_y}, max_y={max_y}"
+        )
+        # Return the full image as fallback
+        min_x, max_x, min_y, max_y = 0, width, 0, height
+
     # Crop the image - EXACTLY like original
     cropped_img = img.crop((min_x, min_y, max_x, max_y))
 

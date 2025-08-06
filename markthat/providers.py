@@ -7,6 +7,8 @@ A single public helper – :func:`get_client` – returns a *ready-to-use* clien
 for the requested provider.  Provider-specific classes hide third-party SDK
 initialisation details and expose a minimal attribute ``raw`` that contains
 that SDK instance so callers can invoke provider-specific APIs when needed.
+
+For LangChain-based unified API calls, use the `langchain_providers` module instead.
 """
 
 from __future__ import annotations
@@ -148,6 +150,11 @@ def get_client(provider_key: str, *, api_key: str | None = None) -> Any:
         One of ``gemini``, ``gpt``, ``claude``, ``mistral`` or ``openrouter``.
     api_key:
         Optional override for the provider API key.
+
+    Note
+    ----
+    This function returns the raw SDK client. For LangChain-based unified
+    API calls, consider using `langchain_providers.unified_langchain_call` instead.
     """
 
     provider_key_lower = provider_key.lower()
@@ -161,3 +168,30 @@ def get_client(provider_key: str, *, api_key: str | None = None) -> Any:
         _INSTANCE_CACHE[cache_key] = provider_cls(api_key=api_key)
 
     return _INSTANCE_CACHE[cache_key].raw
+
+
+def get_langchain_provider(
+    provider_key: str, model_name: str | None = None, *, api_key: str | None = None
+):
+    """Return a LangChain provider instance for unified API calls.
+
+    This is a convenience function that delegates to the langchain_providers module.
+
+    Parameters
+    ----------
+    provider_key:
+        One of ``gemini``, ``gpt``, ``claude``, ``mistral`` or ``openrouter``.
+    model_name:
+        Optional model name to configure the provider with.
+    api_key:
+        Optional override for the provider API key.
+
+    Returns
+    -------
+    LangChainProvider instance from the langchain_providers module.
+    """
+    from .langchain_providers import get_langchain_provider as _get_langchain_provider
+
+    return _get_langchain_provider(
+        provider_key=provider_key, model_name=model_name, api_key=api_key
+    )
