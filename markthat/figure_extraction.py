@@ -59,7 +59,7 @@ def detect_figures(
         # Use EXACT same prompts as original
         system_prompt = """You are an expert at analyzing document content to identify pages that contain figure illustrations (not just figure references or captions).
 
-Your task is to identify pages that actually contain visual figures/charts/diagrams/images that are illustrated or embedded in the document, not just pages that mention or reference figures in text.
+Your task is to identify pages that actually contain visual figures/charts/diagrams/images/tables that are illustrated or embedded in the document, not just pages that mention or reference figures in text.
 
 Return a JSON array of objects with this structure:
 [
@@ -67,10 +67,33 @@ Return a JSON array of objects with this structure:
     "page_number": 0,
     "figure_name": "Figure 1",
     "figure_description": "Description of what the figure shows based on the text context"
-  }
+  },
+  {
+    "page_number": 1,
+    "figure_name": "Table 1",
+    "figure_description": "Description of what the table shows based on the text context"
+  },
+  {
+    "page_number": 2,
+    "figure_name": "Figure 2",
+    "figure_description": "Description of what the figure shows based on the text context"
+  },
+  {
+    "page_number": 3,
+    "figure_name": "Figure 3",
+    "figure_description": "Description of what the figure shows based on the text context"
+  },
+  {
+    "page_number": 4,
+    "figure_name": "table 2",
+    "figure_description": "Description of what the figure shows based on the text context"
+  },
+  
 ]
 
-Only include pages that actually contain the visual figure illustration itself. If no figures are found, return an empty array []."""
+Only include pages that actually contain the visual figure illustration itself. If no figures are found, return an empty array [].
+(for tables, it is visible in texte a markdown table)
+"""
 
         user_prompt = f"""Analyze the following paginated document content and identify which pages contain actual figure illustrations:
 
