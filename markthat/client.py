@@ -336,7 +336,7 @@ class MarkThat:
                 failure_tracker.add(str(exc))
                 if attempt < self.retry_policy.max_attempts:
                     wait = self.retry_policy.backoff_factor * (2 ** (attempt - 1))
-                    logger.info("Retrying in %.1fs", wait)
+                    logger.info("Retrying in %.1fs, %s", wait, exc)
                     time.sleep(wait)
                 else:
                     logger.error("Model %s exhausted retries", model_name)
@@ -384,7 +384,7 @@ def _infer_provider_from_model(model_name: str) -> str:
     if "gemini" in lower:
         return "gemini"
     if "gpt" in lower:
-        return "gpt"
+        return "openai"
     if "claude" in lower:
         return "claude"
     if "mistral" in lower:

@@ -202,7 +202,7 @@ def _infer_provider_from_model(model_name: str) -> str:
     if "gemini" in lower:
         return "gemini"
     if "gpt" in lower:
-        return "gpt"
+        return "openai"
     if "claude" in lower:
         return "claude"
     if "mistral" in lower:
