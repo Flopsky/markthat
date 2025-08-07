@@ -81,7 +81,7 @@ OpenRouter Integration
    # Multi-provider fallbacks through OpenRouter
    multi_provider_converter = MarkThat(
        model="anthropic/claude-3.5-sonnet",
-       fallback_models=["openai/gpt-4o", "google/gemini-pro-vision"],
+       fallback_models=["openai/gpt-4o", "google/gemini-2.0-flash"],
        api_key="YOUR_OPENROUTER_API_KEY"
    )
 

@@ -25,6 +25,13 @@ Set up your API keys as environment variables:
    export MISTRAL_API_KEY="your_mistral_api_key"
    export OPENROUTER_API_KEY="your_openrouter_api_key"
 
+Note
+~~~~
+
+For figure extraction you may pass dedicated keys via the `MarkThat` constructor:
+`api_key_figure_detector`, `api_key_figure_extractor`, and `api_key_figure_parser`.
+If omitted, they default to the main `api_key`.
+
 Basic Usage
 -----------
 

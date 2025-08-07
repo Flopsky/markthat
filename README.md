@@ -13,9 +13,9 @@ A  Python library for converting images and PDFs to Markdown or generating rich 
 - **Dual Mode Operation**: Convert to Markdown or generate detailed descriptions
 - **Advanced Figure Extraction**: Automatically detect, extract, and process figures from PDFs
 - **Robust Retry Logic**: Intelligent retry with fallback models and failure feedback
-- **Async Support**: Concurrent processing for improved performance
-- ** Architecture**: Type-safe, well-documented, and thoroughly tested
-- **Easy Integration**: Simple API with comprehensive configuration options
+ - **Async Support**: Concurrent processing for improved performance
+ - **Clean architecture**: Type-safe, well-documented, and thoroughly tested
+ - **Easy Integration**: Simple API with comprehensive configuration options
 
 ## 📦 Option 1: Install from PyPI
 
@@ -26,7 +26,7 @@ pip install markthat
 ### Option 2: Development Installation
 
 ```bash
-git clone https://github.com/your-repo/markthat.git
+git clone https://github.com/Flopsky/markthat.git
 cd markthat
 pip install -e .
 pre-commit install
@@ -122,6 +122,21 @@ if __name__ == "__main__":
     print("Without figure extraction:", without_figures)
 ```
 
+## 🖥️ Gradio UI (Visual App)
+
+Quickly try MarkThat in your browser.
+
+```bash
+pip install -r requirements.txt  # ensures gradio is installed
+python gradio_ui.py
+```
+
+Then open `http://localhost:7861` in your browser.
+
+- Supports multiple providers with per-step model overrides
+- Lets you pass provider-specific API keys (auto-fills from env when available)
+- Exports results as Markdown or JSON with detected figure paths
+
 ## 🔧 Advanced Configuration
 
 ### Provider-Specific Setup
@@ -214,20 +229,19 @@ asyncio.run(process_document())
 ## 🔑 Environment Variables
 
 ```bash
-# Primary providers
+# Primary providers (used automatically if constructor api_key is not provided)
 export OPENAI_API_KEY="your_openai_key"
-export ANTHROPIC_API_KEY="your_anthropic_key" 
+export ANTHROPIC_API_KEY="your_anthropic_key"
 export GEMINI_API_KEY="your_google_key"
 export MISTRAL_API_KEY="your_mistral_key"
 
-# Unified access
+# Unified access via OpenRouter
 export OPENROUTER_API_KEY="your_openrouter_key"
-
-# Figure extraction (can use different keys for different models)
-export FIGURE_DETECTOR_KEY="detector_api_key"
-export FIGURE_EXTRACTOR_KEY="extractor_api_key"
-export FIGURE_PARSER_KEY="parser_api_key"
 ```
+
+Note: For figure extraction you can pass separate keys via the constructor
+parameters `api_key_figure_detector`, `api_key_figure_extractor`, and
+`api_key_figure_parser`. If omitted, they default to the main `api_key`.
 
 ## 🧪 Testing
 
@@ -238,9 +252,8 @@ pytest
 # Run with coverage
 pytest --cov=markthat
 
-# Run specific test categories
+# Run a specific test file
 pytest tests/test_validation.py
-pytest tests/test_providers.py
 ```
 
 ## 📁 Project Structure
@@ -258,6 +271,7 @@ markthat/
 │   ├── utils/               # Validation & helpers
 │   ├── exceptions.py        # Custom exceptions
 │   └── logging_config.py    # Logging setup
+├── gradio_ui.py             # Visual demo app
 ├── tests/                   # Test suite
 ├── examples/                # Usage examples
 ├── pyproject.toml          # Project metadata
@@ -308,12 +322,16 @@ mypy markthat
 class MarkThat:
     def __init__(
         self,
-        *,
         model: str,
+        *,
         provider: Optional[str] = None,
         fallback_models: Optional[Sequence[str]] = None,
         retry_policy: Optional[RetryPolicy] = None,
         api_key: Optional[str] = None,
+        api_key_figure_detector: Optional[str] = None,
+        api_key_figure_extractor: Optional[str] = None,
+        api_key_figure_parser: Optional[str] = None,
+        max_retry: int = 3,
     ) -> None: ...
 
     def convert(
@@ -323,6 +341,12 @@ class MarkThat:
         format_options: Optional[Dict[str, Any]] = None,
         additional_instructions: Optional[str] = None,
         description_mode: bool = False,
+        extract_figure: bool = False,
+        figure_detector_model: str = "gemini-2.0-flash",
+        coordinate_model: str = "gemini-2.0-flash",
+        parsing_model: str = "gemini-2.5-flash-lite",
+        max_retry: Optional[int] = None,
+        clean_output: bool = True,
     ) -> List[str]: ...
 
     async def async_convert(
@@ -332,6 +356,12 @@ class MarkThat:
         format_options: Optional[Dict[str, Any]] = None,
         additional_instructions: Optional[str] = None,
         description_mode: bool = False,
+        extract_figure: bool = False,
+        figure_detector_model: str = "gemini-2.0-flash",
+        coordinate_model: str = "gemini-2.0-flash",
+        parsing_model: str = "gemini-2.5-flash-lite",
+        max_retry: Optional[int] = None,
+        clean_output: bool = True,
     ) -> List[str]: ...
 ```
 
@@ -390,7 +420,7 @@ except ConversionError as e:
 - [x] ✅ PDF processing with figure extraction
 - [x] ✅ Async processing capabilities
 - [x] ✅ Comprehensive retry logic
-- [x] ✅ Type-safe,  architecture
+- [x] ✅ Type-safe, clean architecture
 - [ ] 🔄 Additional file format support (TIFF, WEBP)
 - [ ] 🔄 Cost tracking and optimization
 - [ ] 🔄 Batch processing API
@@ -408,9 +438,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 💬 Support
 
-- **Issues**: [GitHub Issues](https://github.com/your-repo/markthat/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/your-repo/markthat/discussions)
-- **Documentation**: [Full Documentation](https://markthat.readthedocs.io)
+- **Issues**: [GitHub Issues](https://github.com/Flopsky/markthat/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/Flopsky/markthat/discussions)
+- **Documentation**: See `docs/` for Sphinx sources
 
 ---
 

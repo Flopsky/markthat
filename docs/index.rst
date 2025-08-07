@@ -8,6 +8,7 @@ A Python library for converting images and PDFs to Markdown or generating rich i
    :caption: Contents:
 
    quickstart
+   ui
    api
    examples
 

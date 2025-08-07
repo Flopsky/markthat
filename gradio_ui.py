@@ -1,7 +1,15 @@
-"""Advanced Gradio UI for MarkThat - Showcasing Full Capabilities.
+"""
+Advanced Gradio UI for MarkThat - Showcasing Full Capabilities.
 
 This enhanced interface demonstrates all features of the MarkThat library
 with improved UX, real-time feedback, and advanced functionality.
+
+Key upgrades:
+- Every pipeline step has an editable model (Main, Coordinate, Parsing, Figure Detector, Extractor, Parser)
+- "Use same as Main" toggle per step
+- Per-provider API keys (with env auto-fill) + fallback default key
+- Correct active model tracking across provider tabs (tracks last-changed dropdown)
+- Fully async processing (no nested asyncio.run)
 """
 
 import asyncio
@@ -76,6 +84,40 @@ MODEL_INFO = {
         "description": "Access multiple providers",
     },
 }
+
+
+# -------- Pipeline helpers --------
+def model_id_from_choice(choice: Union[str, None]) -> str:
+    if not choice:
+        return ""
+    return choice.split(" - ")[0].strip() if " - " in choice else choice.strip()
+
+
+def provider_list() -> List[str]:
+    return list(MODEL_INFO.keys())
+
+
+def model_choices(provider: str) -> List[str]:
+    info = MODEL_INFO.get(provider, {})
+    return [f"{m} - {d}" for m, d in info.get("models", {}).items()]
+
+
+def default_model_choice(provider: str) -> str:
+    models = MODEL_INFO.get(provider, {}).get("models", {})
+    if not models:
+        return ""
+    m, d = next(iter(models.items()))
+    return f"{m} - {d}"
+
+
+ENV_DEFAULT_KEYS = {
+    "Gemini": os.getenv("GEMINI_API_KEY", ""),
+    "OpenAI": os.getenv("OPENAI_API_KEY", ""),
+    "Anthropic": os.getenv("ANTHROPIC_API_KEY", ""),
+    "Mistral": os.getenv("MISTRAL_API_KEY", ""),
+    "OpenRouter": os.getenv("OPENROUTER_API_KEY", ""),
+}
+# ----------------------------------
 
 # Sample documents for quick testing
 SAMPLE_DOCUMENTS = {
@@ -179,7 +221,7 @@ def get_provider_from_model(model_name: str) -> str:
 
 
 def update_model_selection(provider: str) -> Tuple[gr.Dropdown, str, str]:
-    """Update model dropdown and info based on provider."""
+    """Update model dropdown and info based on provider. (kept for compatibility)"""
     provider_info = MODEL_INFO.get(provider, {})
     models_dict = provider_info.get("models", {})
 
@@ -226,10 +268,8 @@ def update_model_details(model_choice: str) -> str:
 
 
 def load_sample_document(sample_name: str) -> str:
-    """Load a sample document (placeholder - would load actual files)."""
-    # In a real implementation, this would load actual sample files
-    # For now, return a placeholder path
-    return f"sample_{sample_name.lower().replace(' ', '_')}.pdf"
+    """Load a sample document using SAMPLE_DOCUMENTS paths if present."""
+    return SAMPLE_DOCUMENTS.get(sample_name, "")
 
 
 def preview_file(file_path: str) -> Tuple[Any, str, str]:
@@ -245,7 +285,10 @@ def preview_file(file_path: str) -> Tuple[Any, str, str]:
         info = f"**File:** {file_name}\n**Size:** {file_size:.2f} MB\n**Type:** {file_ext}"
 
         if file_ext == ".pdf":
-            import fitz
+            try:
+                import fitz  # PyMuPDF
+            except Exception as e:
+                return None, info, f"❌ PDF preview not available (PyMuPDF missing): {e}"
 
             doc = fitz.open(file_path)
             total_pages = len(doc)
@@ -281,70 +324,106 @@ def preview_file(file_path: str) -> Tuple[Any, str, str]:
 
 async def process_file_async(
     file_path: str,
-    model: str,
-    api_key: str,
+    main_model: str,
+    api_key_main: str,
     description_mode: bool,
     extract_figures: bool,
     instructions: str,
     format_options: Dict[str, bool],
     advanced_options: Dict[str, Any],
+    step_models: Dict[
+        str, Optional[str]
+    ],  # keys: coordinate_model, parsing_model, figure_detector_model, figure_extractor_model, figure_parser_model
+    provider_api_keys: Dict[str, str],  # keys: "gemini", "gpt", "claude", "mistral", "openrouter"
     progress: gr.Progress,
 ) -> Tuple[str, List[str], Dict[str, Any], str]:
-    """Process file with advanced options and detailed feedback."""
+    """Process file with advanced options and detailed feedback, with per-step model overrides."""
+    provider_main = get_provider_from_model(main_model)
 
-    provider = get_provider_from_model(model)
+    def pick_key_for(model_name: Optional[str]) -> str:
+        # choose key matching model's provider, else fall back to main
+        if model_name:
+            p = get_provider_from_model(model_name)
+            if provider_api_keys.get(p):
+                return provider_api_keys[p]
+        # fallback to main-model provider key if present
+        if provider_api_keys.get(provider_main):
+            return provider_api_keys[provider_main]
+        return api_key_main
 
     progress(0.1, desc="🔧 Initializing MarkThat client...")
 
     try:
-        # Initialize client with advanced options
         client_params = {
-            "model": model,
-            "provider": provider,
-            "api_key": api_key,
-            "api_key_figure_detector": api_key,
-            "api_key_figure_extractor": api_key,
-            "api_key_figure_parser": api_key,
+            "model": main_model,
+            "provider": provider_main,
+            "api_key": pick_key_for(main_model),
+            # route figure sub-steps with appropriate keys (falls back if blank)
+            "api_key_figure_detector": pick_key_for(step_models.get("figure_detector_model")),
+            "api_key_figure_extractor": pick_key_for(step_models.get("figure_extractor_model")),
+            "api_key_figure_parser": pick_key_for(step_models.get("figure_parser_model")),
         }
-
-        # Add temperature if specified
-        if advanced_options.get("temperature"):
+        if advanced_options.get("temperature") is not None:
             client_params["temperature"] = advanced_options["temperature"]
 
         client = MarkThat(**client_params)
 
         progress(0.2, desc="📂 Loading and analyzing file...")
 
-        # Prepare conversion parameters
         convert_params = {
             "file_path": file_path,
             "description_mode": description_mode,
             "extract_figure": extract_figures,
-            "coordinate_model": "gemini-2.0-flash-001",
-            "parsing_model": "gemini-2.5-flash-lite",
             "format_options": format_options if any(format_options.values()) else None,
         }
 
-        # Add instructions if provided
+        # coordinate and parsing step overrides (supported by your original code)
+        if step_models.get("coordinate_model"):
+            convert_params["coordinate_model"] = step_models["coordinate_model"]
+        if step_models.get("parsing_model"):
+            convert_params["parsing_model"] = step_models["parsing_model"]
+
+        # Optional figure override models (if supported by your MarkThat version)
+        optional_figure_params = {}
+        for k in ["figure_detector_model", "figure_extractor_model", "figure_parser_model"]:
+            if step_models.get(k):
+                optional_figure_params[k] = step_models[k]
+
         if instructions and instructions.strip():
             convert_params["additional_instructions"] = instructions
-
-        # Add page range if specified
         if advanced_options.get("page_range"):
             convert_params["page_range"] = advanced_options["page_range"]
 
         progress(0.3, desc="🤖 Processing with AI model...")
 
-        # Perform conversion
-        start_time = asyncio.get_event_loop().time()
-        results = await client.async_convert(**convert_params)
-        processing_time = asyncio.get_event_loop().time() - start_time
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = asyncio.get_event_loop()
+        start_time = loop.time()
+
+        # Try once with optional keys, then gracefully strip unsupported ones and retry
+        full_params = {**convert_params, **optional_figure_params}
+        try:
+            results = await client.async_convert(**full_params)
+        except TypeError as te:
+            msg = str(te)
+            stripped = False
+            for k in list(optional_figure_params.keys()):
+                if k in msg:
+                    full_params.pop(k, None)
+                    stripped = True
+            if stripped:
+                results = await client.async_convert(**full_params)
+            else:
+                raise
+
+        processing_time = loop.time() - start_time
 
         progress(
             0.7, desc="🖼️ Extracting figures..." if extract_figures else "📝 Finalizing markdown..."
         )
 
-        # Get extracted figures
         extracted_figures = []
         if extract_figures:
             images_dir = Path("images")
@@ -354,7 +433,6 @@ async def process_file_async(
 
         progress(0.9, desc="📊 Generating statistics...")
 
-        # Calculate statistics
         combined_markdown = "\n\n---\n\n".join(
             [f"# Page {i+1}\n\n{result}" for i, result in enumerate(results)]
         )
@@ -365,7 +443,12 @@ async def process_file_async(
             "word_count": len(combined_markdown.split()),
             "processing_time": f"{processing_time:.2f}s",
             "figures_extracted": len(extracted_figures),
-            "model_used": model,
+            "model_used": main_model,
+            "coordinate_model": step_models.get("coordinate_model"),
+            "parsing_model": step_models.get("parsing_model"),
+            "figure_detector_model": step_models.get("figure_detector_model"),
+            "figure_extractor_model": step_models.get("figure_extractor_model"),
+            "figure_parser_model": step_models.get("figure_parser_model"),
             "mode": "Description" if description_mode else "Markdown",
         }
 
@@ -382,10 +465,10 @@ async def process_file_async(
         return "", [], {}, error_msg
 
 
-def process_file_wrapper(
+async def process_file_wrapper(
     file_path: Optional[str],
-    model_choice: str,
-    api_key: str,
+    main_model_id: str,  # from hidden state bound to active provider tab dropdown
+    api_key_fallback: str,  # the single API key input (used as fallback)
     custom_model: str,
     description_mode: bool,
     extract_figures: bool,
@@ -400,21 +483,78 @@ def process_file_wrapper(
     page_range_enabled: bool,
     page_start: int,
     page_end: int,
+    # Pipeline: Coordinate/Layout
+    coord_inherit: bool,
+    coord_provider: str,
+    coord_model_choice: str,
+    coord_custom: str,
+    # Pipeline: Parsing
+    pars_inherit: bool,
+    pars_provider: str,
+    pars_model_choice: str,
+    pars_custom: str,
+    # Pipeline: Figure Detector
+    fdet_inherit: bool,
+    fdet_provider: str,
+    fdet_model_choice: str,
+    fdet_custom: str,
+    # Pipeline: Figure Extractor
+    fext_inherit: bool,
+    fext_provider: str,
+    fext_model_choice: str,
+    fext_custom: str,
+    # Pipeline: Figure Parser
+    fpar_inherit: bool,
+    fpar_provider: str,
+    fpar_model_choice: str,
+    fpar_custom: str,
+    # Per-provider API keys
+    api_key_gemini: str,
+    api_key_openai: str,
+    api_key_anthropic: str,
+    api_key_mistral: str,
+    api_key_openrouter: str,
     progress: gr.Progress = gr.Progress(),
 ) -> Tuple[str, gr.Gallery, str, str, str]:
-    """Enhanced wrapper with all options."""
-
+    """Enhanced wrapper with pipeline model overrides and per-provider keys."""
     # Validate inputs
     if not file_path:
-        return "", gr.Gallery(value=[]), "", "❌ Please upload a file", ""
+        return (
+            "",
+            gr.Gallery(value=[]),
+            "",
+            '<div class="status-indicator status-error">❌ Please upload a file</div>',
+            session_state.get_history_display(),
+        )
 
-    # Extract model name from choice
-    model = custom_model.strip() if custom_model else model_choice.split(" - ")[0]
-    if not model:
-        return "", gr.Gallery(value=[]), "", "❌ Please select or enter a model", ""
+    # Resolve main model (custom > active tab selection)
+    main_model = custom_model.strip() if custom_model else (main_model_id or "").strip()
+    if not main_model:
+        return (
+            "",
+            gr.Gallery(value=[]),
+            "",
+            '<div class="status-indicator status-error">❌ Please select or enter a model</div>',
+            session_state.get_history_display(),
+        )
 
-    if not api_key:
-        return "", gr.Gallery(value=[]), "", "❌ Please provide an API key", ""
+    # Per-provider keys map (lowercase keys to match get_provider_from_model)
+    provider_api_keys = {
+        "gemini": (api_key_gemini or "").strip(),
+        "gpt": (api_key_openai or "").strip(),
+        "claude": (api_key_anthropic or "").strip(),
+        "mistral": (api_key_mistral or "").strip(),
+        "openrouter": (api_key_openrouter or "").strip(),
+    }
+    # Fallback check
+    if not any(provider_api_keys.values()) and not api_key_fallback:
+        return (
+            "",
+            gr.Gallery(value=[]),
+            "",
+            '<div class="status-indicator status-error">❌ Please provide at least one API key</div>',
+            session_state.get_history_display(),
+        )
 
     # Combine instructions
     instructions = ""
@@ -425,7 +565,7 @@ def process_file_wrapper(
             f"{instructions}\n\n{custom_instructions}" if instructions else custom_instructions
         )
 
-    # Prepare format options
+    # Format preservation options
     format_options = {
         "preserve_tables": preserve_tables,
         "preserve_code_blocks": preserve_code,
@@ -433,88 +573,149 @@ def process_file_wrapper(
         "preserve_formatting": preserve_formatting,
     }
 
-    # Prepare advanced options
+    # Advanced options
     advanced_options = {}
     if use_temperature:
         advanced_options["temperature"] = temperature
     if page_range_enabled:
-        advanced_options["page_range"] = (page_start, page_end)
+        try:
+            s = int(page_start)
+            e = int(page_end)
+            if s <= 0 or e <= 0:
+                raise ValueError
+            if s > e:
+                s, e = e, s
+            advanced_options["page_range"] = (s, e)
+        except Exception:
+            # ignore invalid, let backend process whole file
+            pass
 
-    # Process file
+    # Helpers to resolve per-step model
+    def resolve_step(inherit: bool, provider: str, choice: str, custom: str) -> Optional[str]:
+        if inherit:
+            return main_model
+        return (custom.strip() or model_id_from_choice(choice) or "").strip() or None
+
+    step_models = {
+        "coordinate_model": resolve_step(
+            coord_inherit, coord_provider, coord_model_choice, coord_custom
+        ),
+        "parsing_model": resolve_step(pars_inherit, pars_provider, pars_model_choice, pars_custom),
+        "figure_detector_model": resolve_step(
+            fdet_inherit, fdet_provider, fdet_model_choice, fdet_custom
+        ),
+        "figure_extractor_model": resolve_step(
+            fext_inherit, fext_provider, fext_model_choice, fext_custom
+        ),
+        "figure_parser_model": resolve_step(
+            fpar_inherit, fpar_provider, fpar_model_choice, fpar_custom
+        ),
+    }
+
     try:
-        markdown, figures, stats, status = asyncio.run(
-            process_file_async(
-                file_path,
-                model,
-                api_key,
-                description_mode,
-                extract_figures,
-                instructions,
-                format_options,
-                advanced_options,
-                progress,
-            )
+        markdown, figures, stats, status_msg = await process_file_async(
+            file_path=file_path,
+            main_model=main_model,
+            api_key_main=api_key_fallback,
+            description_mode=description_mode,
+            extract_figures=extract_figures,
+            instructions=instructions,
+            format_options=format_options,
+            advanced_options=advanced_options,
+            step_models=step_models,
+            provider_api_keys=provider_api_keys,
+            progress=progress,
         )
 
-        # Update history
         if markdown:
             session_state.add_to_history(
-                Path(file_path).name, model, markdown[:100] + "...", status
+                Path(file_path).name, main_model, markdown[:100] + "...", status_msg
             )
 
-        # Format statistics
-        stats_display = "\n".join(
-            [f"**{k.replace('_', ' ').title()}:** {v}" for k, v in stats.items()]
-        )
+        # Stats display (prettified)
+        if stats:
+            nice = []
+            for k, v in stats.items():
+                label = k.replace("_", " ").title()
+                nice.append(f"**{label}:** {v}")
+            stats_display = "\n".join(nice)
+        else:
+            stats_display = "No statistics available."
 
-        # Create gallery value
         gallery_value = figures if figures else []
+
+        # Status banner styling
+        status_html = f'<div class="status-indicator {"status-success" if "✅" in status_msg else "status-error"}">{status_msg}</div>'
 
         return (
             markdown,
             gr.Gallery(value=gallery_value),
             stats_display,
-            status,
+            status_html,
             session_state.get_history_display(),
         )
 
     except Exception as e:
         error_msg = f"❌ Unexpected error: {str(e)}"
-        return "", gr.Gallery(value=[]), "", error_msg, session_state.get_history_display()
+        status_html = f'<div class="status-indicator status-error">{error_msg}</div>'
+        return "", gr.Gallery(value=[]), "", status_html, session_state.get_history_display()
 
 
-def compare_models(
+async def compare_models_ui(
     file_path: str,
-    models_to_compare: List[str],
-    api_keys: Dict[str, str],
+    selected_models: List[str],
+    api_key_fallback: str,
+    api_key_gemini: str,
+    api_key_openai: str,
+    api_key_anthropic: str,
+    api_key_mistral: str,
+    api_key_openrouter: str,
     progress: gr.Progress = gr.Progress(),
 ) -> Tuple[Dict[str, str], str]:
-    """Compare outputs from multiple models."""
-    if not file_path or not models_to_compare:
-        return {}, "❌ Please select a file and at least one model"
+    """Compare outputs from multiple models concurrently."""
+    if not file_path or not selected_models:
+        return (
+            {},
+            '<div class="status-indicator status-error">❌ Please select a file and at least one model</div>',
+        )
 
-    results = {}
+    provider_api_keys = {
+        "gemini": (api_key_gemini or "").strip(),
+        "gpt": (api_key_openai or "").strip(),
+        "claude": (api_key_anthropic or "").strip(),
+        "mistral": (api_key_mistral or "").strip(),
+        "openrouter": (api_key_openrouter or "").strip(),
+    }
 
-    for i, model_choice in enumerate(models_to_compare):
-        model = model_choice.split(" - ")[0]
-        provider = get_provider_from_model(model)
-        api_key = api_keys.get(provider)
-
+    async def convert_one(model_choice: str) -> Tuple[str, str]:
+        model_id = model_id_from_choice(model_choice)
+        provider = get_provider_from_model(model_id)
+        api_key = provider_api_keys.get(provider) or api_key_fallback
         if not api_key:
-            results[model] = f"❌ No API key for {provider}"
-            continue
-
-        progress((i + 0.5) / len(models_to_compare), desc=f"Processing with {model}...")
+            return model_id, f"❌ No API key for provider '{provider}'"
 
         try:
-            client = MarkThat(model=model, provider=provider, api_key=api_key)
-            result = asyncio.run(client.async_convert(file_path=file_path))
-            results[model] = "\n\n".join(result) if result else "No output generated"
+            client = MarkThat(model=model_id, provider=provider, api_key=api_key)
+            result = await client.async_convert(file_path=file_path)
+            text = "\n\n".join(result) if result else "(No output generated)"
+            return model_id, text
         except Exception as e:
-            results[model] = f"❌ Error: {str(e)}"
+            return model_id, f"❌ Error: {str(e)}"
 
-    progress(1.0, desc="Comparison complete!")
-    return results, "✅ Model comparison complete"
+    results: Dict[str, str] = {}
+    tasks = [convert_one(m) for m in selected_models]
+    total = len(tasks)
+    done_count = 0
+    progress(0.01, desc="Starting comparisons...")
+
+    for coro in asyncio.as_completed(tasks):
+        model_id, text = await coro
+        results[model_id] = text
+        done_count += 1
+        progress(done_count / total, desc=f"Completed {done_count}/{total}")
+
+    status_html = '<div class="status-indicator status-success">✅ Model comparison complete</div>'
+    return results, status_html
 
 
 def export_results(markdown: str, figures: List[str], format: str) -> str:
@@ -744,12 +945,12 @@ def create_interface():
 
                             # Sample documents
                             with gr.Row():
-                                gr.Dropdown(
+                                sample_choice = gr.Dropdown(
                                     choices=list(SAMPLE_DOCUMENTS.keys()),
                                     label="Or try a sample",
                                     scale=2,
                                 )
-                                gr.Button("Load", scale=1)
+                                load_sample_btn = gr.Button("Load", scale=1)
 
                             # File preview
                             file_preview = gr.Image(label="Preview", height=200, visible=False)
@@ -760,36 +961,88 @@ def create_interface():
                         with gr.Group(elem_classes="card"):
                             gr.HTML('<div class="card-header"><h3>🤖 Model Selection</h3></div>')
 
+                            # Track the last-changed dropdown for main model id
+                            # Initialize with first Gemini model
+                            default_main_model = list(MODEL_INFO["Gemini"]["models"].keys())[0]
+                            main_model_state = gr.State(value=default_main_model)
+
                             provider_tabs = gr.Tabs()
+                            model_dropdowns = {}
+                            model_details_mds = {}
+
                             with provider_tabs:
-                                model_dropdowns = {}
                                 for provider, info in MODEL_INFO.items():
                                     with gr.Tab(f"{info['icon']} {provider}"):
                                         gr.Markdown(f"*{info['description']}*")
-                                        model_dropdowns[provider] = gr.Dropdown(
+                                        dd = gr.Dropdown(
                                             choices=[
                                                 f"{m} - {d}" for m, d in info["models"].items()
                                             ],
                                             value=list(info["models"].items())[0][0]
                                             + " - "
                                             + list(info["models"].values())[0],
-                                            label="Select Model",
+                                            label=f"{provider} - Select Model",
                                             interactive=True,
                                         )
-                                        gr.Markdown("", elem_id=f"{provider}_model_details")
+                                        detail_md = gr.Markdown("", visible=True)
+                                        # update both active model state and details
+                                        dd.change(
+                                            lambda x: (
+                                                model_id_from_choice(x),
+                                                update_model_details(x),
+                                            ),
+                                            inputs=[dd],
+                                            outputs=[main_model_state, detail_md],
+                                        )
+                                        model_dropdowns[provider] = dd
+                                        model_details_mds[provider] = detail_md
 
                             custom_model_input = gr.Textbox(
-                                label="Or use custom model",
+                                label="Or use custom model for Main step",
                                 placeholder="your-custom/model-name",
                                 interactive=True,
                             )
 
-                            api_key_input = gr.Textbox(
-                                label="API Key",
-                                placeholder="Enter your API key...",
-                                type="password",
-                                interactive=True,
-                            )
+                            # API keys (fallback + per-provider)
+                            with gr.Accordion("API Keys", open=False):
+                                api_key_input = gr.Textbox(
+                                    label="Default API Key (fallback)",
+                                    placeholder="Used if a provider-specific key is missing",
+                                    type="password",
+                                    interactive=True,
+                                )
+                                with gr.Row():
+                                    api_key_gemini = gr.Textbox(
+                                        label="Gemini API Key",
+                                        placeholder="GEMINI_API_KEY",
+                                        value=ENV_DEFAULT_KEYS["Gemini"],
+                                        type="password",
+                                    )
+                                    api_key_openai = gr.Textbox(
+                                        label="OpenAI API Key",
+                                        placeholder="OPENAI_API_KEY",
+                                        value=ENV_DEFAULT_KEYS["OpenAI"],
+                                        type="password",
+                                    )
+                                with gr.Row():
+                                    api_key_anthropic = gr.Textbox(
+                                        label="Anthropic API Key",
+                                        placeholder="ANTHROPIC_API_KEY",
+                                        value=ENV_DEFAULT_KEYS["Anthropic"],
+                                        type="password",
+                                    )
+                                    api_key_mistral = gr.Textbox(
+                                        label="Mistral API Key",
+                                        placeholder="MISTRAL_API_KEY",
+                                        value=ENV_DEFAULT_KEYS["Mistral"],
+                                        type="password",
+                                    )
+                                api_key_openrouter = gr.Textbox(
+                                    label="OpenRouter API Key",
+                                    placeholder="OPENROUTER_API_KEY",
+                                    value=ENV_DEFAULT_KEYS["OpenRouter"],
+                                    type="password",
+                                )
 
                         # Processing options card
                         with gr.Group(elem_classes="card"):
@@ -834,6 +1087,187 @@ def create_interface():
                                     preserve_formatting = gr.Checkbox(
                                         label="Preserve Formatting", value=True
                                     )
+
+                            # Pipeline model overrides
+                            with gr.Accordion("Pipeline Models (override)", open=False):
+                                gr.Markdown(
+                                    "Toggle 'Use same as Main' to reuse the main model. Otherwise pick a provider/model or type a custom model id."
+                                )
+
+                                def toggle_visibility(inherit):
+                                    return (
+                                        gr.update(visible=not inherit),
+                                        gr.update(visible=not inherit),
+                                        gr.update(visible=not inherit),
+                                    )
+
+                                def update_model_choices(provider):
+                                    return gr.update(
+                                        choices=model_choices(provider),
+                                        value=default_model_choice(provider),
+                                    )
+
+                                # Coordinate/Layout
+                                gr.Markdown("#### Coordinate / Layout Model")
+                                with gr.Row():
+                                    coord_inherit = gr.Checkbox(
+                                        label="Use same as Main", value=True
+                                    )
+                                    coord_provider = gr.Dropdown(
+                                        provider_list(),
+                                        value="Gemini",
+                                        label="Provider",
+                                        visible=False,
+                                    )
+                                    coord_model_choice = gr.Dropdown(
+                                        model_choices("Gemini"),
+                                        value=default_model_choice("Gemini"),
+                                        label="Model",
+                                        visible=False,
+                                    )
+                                    coord_custom = gr.Textbox(
+                                        label="Custom (optional)",
+                                        placeholder="provider/model-name",
+                                        visible=False,
+                                    )
+                                coord_inherit.change(
+                                    toggle_visibility,
+                                    inputs=[coord_inherit],
+                                    outputs=[coord_provider, coord_model_choice, coord_custom],
+                                )
+                                coord_provider.change(
+                                    update_model_choices,
+                                    inputs=[coord_provider],
+                                    outputs=[coord_model_choice],
+                                )
+
+                                # Parsing
+                                gr.Markdown("#### Parsing Model")
+                                with gr.Row():
+                                    pars_inherit = gr.Checkbox(label="Use same as Main", value=True)
+                                    pars_provider = gr.Dropdown(
+                                        provider_list(),
+                                        value="Gemini",
+                                        label="Provider",
+                                        visible=False,
+                                    )
+                                    pars_model_choice = gr.Dropdown(
+                                        model_choices("Gemini"),
+                                        value=default_model_choice("Gemini"),
+                                        label="Model",
+                                        visible=False,
+                                    )
+                                    pars_custom = gr.Textbox(
+                                        label="Custom (optional)",
+                                        placeholder="provider/model-name",
+                                        visible=False,
+                                    )
+                                pars_inherit.change(
+                                    toggle_visibility,
+                                    inputs=[pars_inherit],
+                                    outputs=[pars_provider, pars_model_choice, pars_custom],
+                                )
+                                pars_provider.change(
+                                    update_model_choices,
+                                    inputs=[pars_provider],
+                                    outputs=[pars_model_choice],
+                                )
+
+                                # Figure Detector
+                                gr.Markdown("#### Figure Detector")
+                                with gr.Row():
+                                    fdet_inherit = gr.Checkbox(label="Use same as Main", value=True)
+                                    fdet_provider = gr.Dropdown(
+                                        provider_list(),
+                                        value="Gemini",
+                                        label="Provider",
+                                        visible=False,
+                                    )
+                                    fdet_model_choice = gr.Dropdown(
+                                        model_choices("Gemini"),
+                                        value=default_model_choice("Gemini"),
+                                        label="Model",
+                                        visible=False,
+                                    )
+                                    fdet_custom = gr.Textbox(
+                                        label="Custom (optional)",
+                                        placeholder="provider/model-name",
+                                        visible=False,
+                                    )
+                                fdet_inherit.change(
+                                    toggle_visibility,
+                                    inputs=[fdet_inherit],
+                                    outputs=[fdet_provider, fdet_model_choice, fdet_custom],
+                                )
+                                fdet_provider.change(
+                                    update_model_choices,
+                                    inputs=[fdet_provider],
+                                    outputs=[fdet_model_choice],
+                                )
+
+                                # Figure Extractor
+                                gr.Markdown("#### Figure Extractor")
+                                with gr.Row():
+                                    fext_inherit = gr.Checkbox(label="Use same as Main", value=True)
+                                    fext_provider = gr.Dropdown(
+                                        provider_list(),
+                                        value="Gemini",
+                                        label="Provider",
+                                        visible=False,
+                                    )
+                                    fext_model_choice = gr.Dropdown(
+                                        model_choices("Gemini"),
+                                        value=default_model_choice("Gemini"),
+                                        label="Model",
+                                        visible=False,
+                                    )
+                                    fext_custom = gr.Textbox(
+                                        label="Custom (optional)",
+                                        placeholder="provider/model-name",
+                                        visible=False,
+                                    )
+                                fext_inherit.change(
+                                    toggle_visibility,
+                                    inputs=[fext_inherit],
+                                    outputs=[fext_provider, fext_model_choice, fext_custom],
+                                )
+                                fext_provider.change(
+                                    update_model_choices,
+                                    inputs=[fext_provider],
+                                    outputs=[fext_model_choice],
+                                )
+
+                                # Figure Parser
+                                gr.Markdown("#### Figure Parser")
+                                with gr.Row():
+                                    fpar_inherit = gr.Checkbox(label="Use same as Main", value=True)
+                                    fpar_provider = gr.Dropdown(
+                                        provider_list(),
+                                        value="Gemini",
+                                        label="Provider",
+                                        visible=False,
+                                    )
+                                    fpar_model_choice = gr.Dropdown(
+                                        model_choices("Gemini"),
+                                        value=default_model_choice("Gemini"),
+                                        label="Model",
+                                        visible=False,
+                                    )
+                                    fpar_custom = gr.Textbox(
+                                        label="Custom (optional)",
+                                        placeholder="provider/model-name",
+                                        visible=False,
+                                    )
+                                fpar_inherit.change(
+                                    toggle_visibility,
+                                    inputs=[fpar_inherit],
+                                    outputs=[fpar_provider, fpar_model_choice, fpar_custom],
+                                )
+                                fpar_provider.change(
+                                    update_model_choices,
+                                    inputs=[fpar_provider],
+                                    outputs=[fpar_model_choice],
+                                )
 
                             # Advanced options
                             with gr.Accordion("Advanced Options", open=False):
@@ -930,7 +1364,7 @@ def create_interface():
 
                 with gr.Row():
                     with gr.Column(scale=1):
-                        gr.File(
+                        compare_file_input = gr.File(
                             label="Upload Document for Comparison",
                             file_types=[".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp"],
                             type="filepath",
@@ -938,35 +1372,25 @@ def create_interface():
 
                         # Model selection for comparison
                         gr.Markdown("### Select Models to Compare")
-                        compare_models = []
+                        compare_choices = []
                         for provider, info in MODEL_INFO.items():
-                            with gr.Accordion(f"{info['icon']} {provider}", open=False):
-                                for model, desc in info["models"].items():
-                                    compare_models.append(
-                                        gr.Checkbox(
-                                            label=f"{model} - {desc}", value=False, interactive=True
-                                        )
-                                    )
+                            for model, desc in info["models"].items():
+                                compare_choices.append(f"{model} - {desc}")
 
-                        # API keys for comparison
-                        gr.Markdown("### API Keys")
-                        compare_api_keys = {}
-                        for provider in MODEL_INFO.keys():
-                            compare_api_keys[provider.lower()] = gr.Textbox(
-                                label=f"{provider} API Key", type="password", interactive=True
-                            )
+                        compare_models_group = gr.CheckboxGroup(
+                            choices=compare_choices,
+                            label="Models",
+                        )
 
-                        gr.Button(
+                        compare_btn = gr.Button(
                             "🔍 Compare Models", variant="primary", elem_classes="primary-button"
                         )
 
                     with gr.Column(scale=2):
-                        gr.HTML(
+                        compare_status_html = gr.HTML(
                             value='<div class="status-indicator status-info">Select models to compare</div>'
                         )
-
-                        # Comparison results
-                        gr.Tabs()
+                        compare_results_json = gr.JSON(label="Comparison Results")
 
             # ===== GUIDE TAB =====
             with gr.Tab("📚 Guide", elem_id="guide-tab"):
@@ -977,7 +1401,7 @@ def create_interface():
                 ### Quick Start
                 1. **Upload** your document (PDF or image)
                 2. **Select** an AI model from your preferred provider
-                3. **Enter** your API key
+                3. **Enter** your API keys (provider-specific or fallback)
                 4. **Click** "Convert Document"
                 
                 ### Features
@@ -1001,36 +1425,26 @@ def create_interface():
                 - **Custom Instructions**: Add specific requirements for conversion
                 
                 #### 🔧 Advanced Features
+                - **Pipeline Overrides**: Choose distinct models for each step
                 - **Model Comparison**: Compare outputs from different models
-                - **Batch Processing**: Convert multiple pages efficiently
                 - **Export Options**: Save as Markdown, Text, or ZIP with figures
                 - **History Tracking**: Keep track of recent conversions
                 
                 ### Tips for Best Results
-                
-                1. **High Quality Images**: Use clear, high-resolution images
-                2. **Specific Instructions**: Be detailed about formatting needs
-                3. **Model Selection**: 
-                   - Use Gemini 2.0 Flash for speed
-                   - Use GPT-4o or Claude for complex documents
-                   - Use specialized models for specific content types
-                4. **Figure Extraction**: Enable for documents with diagrams or charts
+                - Use high-quality input files (clear scans, readable text)
+                - Add specific instructions for complex layouts
+                - Try different models for parsing vs. layout detection
+                - Enable figure extraction for charts or diagrams
                 
                 ### API Keys
-                
-                Get your API keys from:
-                - **Gemini**: [Google AI Studio](https://makersuite.google.com/app/apikey)
-                - **OpenAI**: [OpenAI Platform](https://platform.openai.com/api-keys)
-                - **Anthropic**: [Anthropic Console](https://console.anthropic.com/)
-                - **Mistral**: [Mistral AI](https://console.mistral.ai/)
-                - **OpenRouter**: [OpenRouter](https://openrouter.ai/)
+                You can set environment variables to auto-fill keys:
+                - GEMINI_API_KEY, OPENAI_API_KEY, ANTHROPIC_API_KEY, MISTRAL_API_KEY, OPENROUTER_API_KEY
                 
                 ### Troubleshooting
-                
-                - **Empty output**: Check if the model supports vision/images
-                - **API errors**: Verify your API key and quota
-                - **Poor quality**: Try different models or add specific instructions
-                - **Missing figures**: Ensure "Extract Figures" is enabled
+                - Empty output: Check if the model supports vision/images
+                - API errors: Verify your API key and quota
+                - Poor quality: Try different models or add specific instructions
+                - Missing figures: Ensure "Extract Figures" is enabled
                 """
                 )
 
@@ -1061,18 +1475,49 @@ def create_interface():
             outputs=[file_preview, file_info, status_output],
         )
 
-        # Get active model from tabs
-        def get_active_model():
-            # This is a simplified version - in practice you'd track the active tab
-            return model_dropdowns["Gemini"]
+        # Load sample handler
+        def handle_sample_load(sample_name: str):
+            if not sample_name:
+                return (
+                    gr.File(visible=True),
+                    gr.Image(visible=False),
+                    "No file selected",
+                    '<div class="status-indicator status-info">Ready to convert documents</div>',
+                )
+            path = load_sample_document(sample_name)
+            if not path or not os.path.exists(path):
+                return (
+                    gr.File(visible=True),
+                    gr.Image(visible=False),
+                    f"Sample not found at {path}",
+                    '<div class="status-indicator status-error">❌ Sample file not found</div>',
+                )
+            preview, info, status = preview_file(path)
+            status_html = (
+                f'<div class="status-indicator status-success">{status}</div>'
+                if "✅" in status
+                else f'<div class="status-indicator status-error">{status}</div>'
+            )
+            return (
+                gr.File(value=path, visible=True),
+                gr.Image(value=preview, visible=preview is not None),
+                info,
+                status_html,
+            )
 
-        # Process button
+        load_sample_btn.click(
+            fn=handle_sample_load,
+            inputs=[sample_choice],
+            outputs=[file_input, file_preview, file_info, status_output],
+        )
+
+        # Process button - run async wrapper
         process_btn.click(
             fn=process_file_wrapper,
             inputs=[
                 file_input,
-                get_active_model(),  # Would need proper tab tracking
-                api_key_input,
+                main_model_state,  # active main model id
+                api_key_input,  # default API key (fallback)
                 custom_model_input,
                 description_mode,
                 extract_figures,
@@ -1087,6 +1532,33 @@ def create_interface():
                 page_range_enabled,
                 page_start,
                 page_end,
+                # Pipeline overrides
+                coord_inherit,
+                coord_provider,
+                coord_model_choice,
+                coord_custom,
+                pars_inherit,
+                pars_provider,
+                pars_model_choice,
+                pars_custom,
+                fdet_inherit,
+                fdet_provider,
+                fdet_model_choice,
+                fdet_custom,
+                fext_inherit,
+                fext_provider,
+                fext_model_choice,
+                fext_custom,
+                fpar_inherit,
+                fpar_provider,
+                fpar_model_choice,
+                fpar_custom,
+                # Per-provider API keys
+                api_key_gemini,
+                api_key_openai,
+                api_key_anthropic,
+                api_key_mistral,
+                api_key_openrouter,
             ],
             outputs=[
                 markdown_output,
@@ -1116,6 +1588,22 @@ def create_interface():
             return "History cleared", session_state.get_history_display()
 
         clear_history_btn.click(fn=clear_history, outputs=[status_output, history_display])
+
+        # Compare tab run
+        compare_btn.click(
+            fn=compare_models_ui,
+            inputs=[
+                compare_file_input,
+                compare_models_group,
+                api_key_input,
+                api_key_gemini,
+                api_key_openai,
+                api_key_anthropic,
+                api_key_mistral,
+                api_key_openrouter,
+            ],
+            outputs=[compare_results_json, compare_status_html],
+        )
 
     return demo
 
