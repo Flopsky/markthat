@@ -259,7 +259,7 @@ class LangChainOpenRouterProvider(LangChainProvider):
 # Provider registry
 LANGCHAIN_PROVIDER_MAP: Dict[str, type[LangChainProvider]] = {
     "gemini": LangChainGeminiProvider,
-    "gpt": LangChainOpenAIProvider,
+    "openai": LangChainOpenAIProvider,
     "claude": LangChainAnthropicProvider,
     "mistral": LangChainMistralProvider,
     "openrouter": LangChainOpenRouterProvider,
@@ -275,7 +275,7 @@ def get_langchain_provider(
     """Get a LangChain provider instance.
 
     Args:
-        provider_key: One of 'gemini', 'gpt', 'claude', 'mistral', 'openrouter'
+        provider_key: One of 'gemini', 'openai', 'claude', 'mistral', 'openrouter'
         model_name: Optional model name to pass to the provider
         api_key: Optional API key override
         **kwargs: Additional arguments to pass to the provider
@@ -298,7 +298,7 @@ def get_langchain_provider(
         if model_name:
             if provider_key_lower == "gemini":
                 kwargs["model"] = model_name
-            elif provider_key_lower in ["gpt", "openrouter"]:
+            elif provider_key_lower in ["openai", "openrouter"]:
                 kwargs["model"] = model_name
             elif provider_key_lower == "claude":
                 kwargs["model"] = model_name

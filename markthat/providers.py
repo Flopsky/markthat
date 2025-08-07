@@ -131,7 +131,7 @@ class OpenRouterProvider(BaseProvider):
 
 _PROVIDER_MAP: Mapping[str, Type[BaseProvider]] = {
     "gemini": GeminiProvider,
-    "gpt": OpenAIProvider,
+    "openai": OpenAIProvider,
     "claude": AnthropicProvider,
     "mistral": MistralProvider,
     "openrouter": OpenRouterProvider,
@@ -147,7 +147,7 @@ def get_client(provider_key: str, *, api_key: str | None = None) -> Any:
     Parameters
     ----------
     provider_key:
-        One of ``gemini``, ``gpt``, ``claude``, ``mistral`` or ``openrouter``.
+        One of ``gemini``, ``openai``, ``claude``, ``mistral`` or ``openrouter``.
     api_key:
         Optional override for the provider API key.
 
@@ -180,7 +180,7 @@ def get_langchain_provider(
     Parameters
     ----------
     provider_key:
-        One of ``gemini``, ``gpt``, ``claude``, ``mistral`` or ``openrouter``.
+        One of ``gemini``, ``openai``, ``claude``, ``mistral`` or ``openrouter``.
     model_name:
         Optional model name to configure the provider with.
     api_key:
