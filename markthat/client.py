@@ -167,7 +167,12 @@ class MarkThat:
                             api_key_parse=self.api_key_figure_parser,
                         )
                         if path:
-                            results[page_num] += f"\n\n{path}"
+                            if "[END COPY TEXT]" in results[page_num]:
+                                results[page_num] = results[page_num].replace(
+                                    "[END COPY TEXT]", f"\n\n{path}[END COPY TEXT]"
+                                )
+                            else:
+                                results[page_num] += f"\n\n{path}"
             else:
                 logger.info("No figures detected for extraction")
 
@@ -246,7 +251,12 @@ class MarkThat:
                                 ),
                             )
                         if path:
-                            results[page_num] += f"\n\n{path}"
+                            if "[END COPY TEXT]" in results[page_num]:
+                                results[page_num] = results[page_num].replace(
+                                    "[END COPY TEXT]", f"\n\n{path}[END COPY TEXT]"
+                                )
+                            else:
+                                results[page_num] += f"\n\n{path}"
 
                 await asyncio.gather(*(process_figure(f) for f in figures))
 
