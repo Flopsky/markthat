@@ -13,6 +13,7 @@ Key upgrades:
 """
 
 import asyncio
+import difflib
 import io
 import json
 import os
@@ -31,46 +32,46 @@ from markthat import MarkThat
 MODEL_INFO = {
     "Gemini": {
         "models": {
-            "gemini-2.0-flash-001": "Latest and fastest, great for most tasks",
-            "gemini-2.0-flash": "Fast and efficient",
-            "gemini-2.5-flash-lite": "Lightweight version",
-            "gemini-1.5-pro": "Most capable, best quality",
-            "gemini-1.5-flash": "Good balance of speed and quality",
+            "google/gemini-2.0-flash-001": "Latest and fastest, great for most tasks",
+            "google/gemini-2.0-flash": "Fast and efficient",
+            "google/gemini-2.5-flash-lite": "Lightweight version",
+            "google/gemini-1.5-pro": "Most capable, best quality",
+            "google/gemini-1.5-flash": "Good balance of speed and quality",
         },
         "icon": "🔷",
-        "description": "Google's multimodal AI models",
+        "description": "Google's multimodal AI models (via OpenRouter)",
     },
     "OpenAI": {
         "models": {
-            "gpt-4o": "Most capable vision model",
-            "gpt-4o-mini": "Cost-effective vision model",
-            "gpt-4-turbo": "High quality with vision",
-            "gpt-4": "Classic GPT-4",
-            "gpt-3.5-turbo": "Fast and affordable",
+            "openai/gpt-4o": "Most capable vision model",
+            "openai/gpt-4o-mini": "Cost-effective vision model",
+            "openai/gpt-4-turbo": "High quality with vision",
+            "openai/gpt-4": "Classic GPT-4",
+            "openai/gpt-3.5-turbo": "Fast and affordable",
         },
         "icon": "🟢",
-        "description": "OpenAI's GPT models with vision",
+        "description": "OpenAI's GPT models with vision (via OpenRouter)",
     },
     "Anthropic": {
         "models": {
-            "claude-3-5-sonnet-20241022": "Most capable Claude model",
-            "claude-3-5-haiku-20241022": "Fast and efficient",
-            "claude-3-opus-20240229": "Powerful reasoning",
-            "claude-3-sonnet-20240229": "Balanced performance",
-            "claude-3-haiku-20240307": "Lightning fast",
+            "anthropic/claude-3-5-sonnet-20241022": "Most capable Claude model",
+            "anthropic/claude-3-5-haiku-20241022": "Fast and efficient",
+            "anthropic/claude-3-opus-20240229": "Powerful reasoning",
+            "anthropic/claude-3-sonnet-20240229": "Balanced performance",
+            "anthropic/claude-3-haiku-20240307": "Lightning fast",
         },
         "icon": "🔵",
-        "description": "Anthropic's Claude models",
+        "description": "Anthropic's Claude models (via OpenRouter)",
     },
     "Mistral": {
         "models": {
-            "mistral-large-latest": "Most capable Mistral model",
-            "mistral-medium-latest": "Balanced performance",
-            "mistral-small-latest": "Fast and efficient",
-            "pixtral-12b-2409": "Vision-specific model",
+            "mistralai/mistral-large-latest": "Most capable Mistral model",
+            "mistralai/mistral-medium-latest": "Balanced performance",
+            "mistralai/mistral-small-latest": "Fast and efficient",
+            "mistralai/pixtral-12b-2409": "Vision-specific model",
         },
         "icon": "🟠",
-        "description": "Mistral AI's models",
+        "description": "Mistral AI's models (via OpenRouter)",
     },
     "OpenRouter": {
         "models": {
@@ -201,23 +202,8 @@ session_state = SessionState()
 
 
 def get_provider_from_model(model_name: str) -> str:
-    """Infer provider from model name."""
-    if not model_name:
-        return "gemini"
-
-    model_lower = model_name.lower()
-    if "/" in model_lower:
-        return "openrouter"
-    elif "gemini" in model_lower:
-        return "gemini"
-    elif "gpt" in model_lower:
-        return "gpt"
-    elif "claude" in model_lower:
-        return "claude"
-    elif "mistral" in model_lower or "pixtral" in model_lower:
-        return "mistral"
-    else:
-        return "gemini"
+    """All models in the demo use OpenRouter as the provider."""
+    return "openrouter"
 
 
 def update_model_selection(provider: str) -> Tuple[gr.Dropdown, str, str]:
@@ -338,33 +324,24 @@ async def process_file_async(
     progress: gr.Progress,
 ) -> Tuple[str, List[str], Dict[str, Any], str]:
     """Process file with advanced options and detailed feedback, with per-step model overrides."""
-    provider_main = get_provider_from_model(main_model)
+    get_provider_from_model(main_model)
 
     def pick_key_for(model_name: Optional[str]) -> str:
-        # choose key matching model's provider, else fall back to main
-        if model_name:
-            p = get_provider_from_model(model_name)
-            if provider_api_keys.get(p):
-                return provider_api_keys[p]
-        # fallback to main-model provider key if present
-        if provider_api_keys.get(provider_main):
-            return provider_api_keys[provider_main]
-        return api_key_main
+        # All models use OpenRouter; prefer its key, else fallback
+        return provider_api_keys.get("openrouter") or api_key_main
 
     progress(0.1, desc="🔧 Initializing MarkThat client...")
 
     try:
         client_params = {
             "model": main_model,
-            "provider": provider_main,
+            "provider": "openrouter",
             "api_key": pick_key_for(main_model),
             # route figure sub-steps with appropriate keys (falls back if blank)
             "api_key_figure_detector": pick_key_for(step_models.get("figure_detector_model")),
             "api_key_figure_extractor": pick_key_for(step_models.get("figure_extractor_model")),
             "api_key_figure_parser": pick_key_for(step_models.get("figure_parser_model")),
         }
-        if advanced_options.get("temperature") is not None:
-            client_params["temperature"] = advanced_options["temperature"]
 
         client = MarkThat(**client_params)
 
@@ -383,16 +360,12 @@ async def process_file_async(
         if step_models.get("parsing_model"):
             convert_params["parsing_model"] = step_models["parsing_model"]
 
-        # Optional figure override models (if supported by your MarkThat version)
-        optional_figure_params = {}
-        for k in ["figure_detector_model", "figure_extractor_model", "figure_parser_model"]:
-            if step_models.get(k):
-                optional_figure_params[k] = step_models[k]
+        # Optional figure detector override (supported by MarkThat)
+        if step_models.get("figure_detector_model"):
+            convert_params["figure_detector_model"] = step_models["figure_detector_model"]
 
         if instructions and instructions.strip():
             convert_params["additional_instructions"] = instructions
-        if advanced_options.get("page_range"):
-            convert_params["page_range"] = advanced_options["page_range"]
 
         progress(0.3, desc="🤖 Processing with AI model...")
 
@@ -402,21 +375,14 @@ async def process_file_async(
             loop = asyncio.get_event_loop()
         start_time = loop.time()
 
-        # Try once with optional keys, then gracefully strip unsupported ones and retry
-        full_params = {**convert_params, **optional_figure_params}
-        try:
-            results = await client.async_convert(**full_params)
-        except TypeError as te:
-            msg = str(te)
-            stripped = False
-            for k in list(optional_figure_params.keys()):
-                if k in msg:
-                    full_params.pop(k, None)
-                    stripped = True
-            if stripped:
-                results = await client.async_convert(**full_params)
-            else:
-                raise
+        # Snapshot existing figures to report only newly extracted ones
+        images_dir = Path("images")
+        pre_existing_figs = set()
+        if images_dir.exists():
+            pre_existing_figs = {str(p) for p in images_dir.glob("*.png")}
+
+        # Perform conversion with supported parameters only
+        results = await client.async_convert(**convert_params)
 
         processing_time = loop.time() - start_time
 
@@ -425,11 +391,14 @@ async def process_file_async(
         )
 
         extracted_figures = []
-        if extract_figures:
-            images_dir = Path("images")
-            if images_dir.exists():
-                for img_file in sorted(images_dir.glob("*.png")):
-                    extracted_figures.append(str(img_file))
+        if images_dir.exists():
+            post_figs = sorted(images_dir.glob("*.png"))
+            # Prefer newly created figures when extract_figures is on, otherwise show all
+            if extract_figures and pre_existing_figs:
+                new_figs = [str(p) for p in post_figs if str(p) not in pre_existing_figs]
+                extracted_figures = new_figs if new_figs else [str(p) for p in post_figs]
+            else:
+                extracted_figures = [str(p) for p in post_figs]
 
         progress(0.9, desc="📊 Generating statistics...")
 
@@ -485,29 +454,19 @@ async def process_file_wrapper(
     page_end: int,
     # Pipeline: Coordinate/Layout
     coord_inherit: bool,
-    coord_provider: str,
-    coord_model_choice: str,
-    coord_custom: str,
+    coord_model: str,
     # Pipeline: Parsing
     pars_inherit: bool,
-    pars_provider: str,
-    pars_model_choice: str,
-    pars_custom: str,
+    pars_model: str,
     # Pipeline: Figure Detector
     fdet_inherit: bool,
-    fdet_provider: str,
-    fdet_model_choice: str,
-    fdet_custom: str,
+    fdet_model: str,
     # Pipeline: Figure Extractor
     fext_inherit: bool,
-    fext_provider: str,
-    fext_model_choice: str,
-    fext_custom: str,
+    fext_model: str,
     # Pipeline: Figure Parser
     fpar_inherit: bool,
-    fpar_provider: str,
-    fpar_model_choice: str,
-    fpar_custom: str,
+    fpar_model: str,
     # Per-provider API keys
     api_key_gemini: str,
     api_key_openai: str,
@@ -515,7 +474,7 @@ async def process_file_wrapper(
     api_key_mistral: str,
     api_key_openrouter: str,
     progress: gr.Progress = gr.Progress(),
-) -> Tuple[str, gr.Gallery, str, str, str]:
+) -> Tuple[str, gr.Gallery, str, str, str, str]:
     """Enhanced wrapper with pipeline model overrides and per-provider keys."""
     # Validate inputs
     if not file_path:
@@ -525,6 +484,7 @@ async def process_file_wrapper(
             "",
             '<div class="status-indicator status-error">❌ Please upload a file</div>',
             session_state.get_history_display(),
+            "",
         )
 
     # Resolve main model (custom > active tab selection)
@@ -536,14 +496,11 @@ async def process_file_wrapper(
             "",
             '<div class="status-indicator status-error">❌ Please select or enter a model</div>',
             session_state.get_history_display(),
+            "",
         )
 
     # Per-provider keys map (lowercase keys to match get_provider_from_model)
     provider_api_keys = {
-        "gemini": (api_key_gemini or "").strip(),
-        "gpt": (api_key_openai or "").strip(),
-        "claude": (api_key_anthropic or "").strip(),
-        "mistral": (api_key_mistral or "").strip(),
         "openrouter": (api_key_openrouter or "").strip(),
     }
     # Fallback check
@@ -554,6 +511,7 @@ async def process_file_wrapper(
             "",
             '<div class="status-indicator status-error">❌ Please provide at least one API key</div>',
             session_state.get_history_display(),
+            "",
         )
 
     # Combine instructions
@@ -591,25 +549,17 @@ async def process_file_wrapper(
             pass
 
     # Helpers to resolve per-step model
-    def resolve_step(inherit: bool, provider: str, choice: str, custom: str) -> Optional[str]:
+    def resolve_step(inherit: bool, model_input: str) -> Optional[str]:
         if inherit:
             return main_model
-        return (custom.strip() or model_id_from_choice(choice) or "").strip() or None
+        return (model_input or "").strip() or None
 
     step_models = {
-        "coordinate_model": resolve_step(
-            coord_inherit, coord_provider, coord_model_choice, coord_custom
-        ),
-        "parsing_model": resolve_step(pars_inherit, pars_provider, pars_model_choice, pars_custom),
-        "figure_detector_model": resolve_step(
-            fdet_inherit, fdet_provider, fdet_model_choice, fdet_custom
-        ),
-        "figure_extractor_model": resolve_step(
-            fext_inherit, fext_provider, fext_model_choice, fext_custom
-        ),
-        "figure_parser_model": resolve_step(
-            fpar_inherit, fpar_provider, fpar_model_choice, fpar_custom
-        ),
+        "coordinate_model": resolve_step(coord_inherit, coord_model),
+        "parsing_model": resolve_step(pars_inherit, pars_model),
+        "figure_detector_model": resolve_step(fdet_inherit, fdet_model),
+        "figure_extractor_model": resolve_step(fext_inherit, fext_model),
+        "figure_parser_model": resolve_step(fpar_inherit, fpar_model),
     }
 
     try:
@@ -653,12 +603,103 @@ async def process_file_wrapper(
             stats_display,
             status_html,
             session_state.get_history_display(),
+            markdown,
         )
 
     except Exception as e:
         error_msg = f"❌ Unexpected error: {str(e)}"
         status_html = f'<div class="status-indicator status-error">{error_msg}</div>'
-        return "", gr.Gallery(value=[]), "", status_html, session_state.get_history_display()
+        return "", gr.Gallery(value=[]), "", status_html, session_state.get_history_display(), ""
+
+
+async def maybe_auto_process(
+    file_path: Optional[str],
+    auto_convert: bool,
+    # Mirror process_file_wrapper inputs
+    main_model_id: str,
+    api_key_fallback: str,
+    custom_model: str,
+    description_mode: bool,
+    extract_figures: bool,
+    preset_instructions: str,
+    custom_instructions: str,
+    preserve_tables: bool,
+    preserve_code: bool,
+    preserve_links: bool,
+    preserve_formatting: bool,
+    use_temperature: bool,
+    temperature: float,
+    page_range_enabled: bool,
+    page_start: int,
+    page_end: int,
+    coord_inherit: bool,
+    coord_model: str,
+    pars_inherit: bool,
+    pars_model: str,
+    fdet_inherit: bool,
+    fdet_model: str,
+    fext_inherit: bool,
+    fext_model: str,
+    fpar_inherit: bool,
+    fpar_model: str,
+    api_key_gemini: str,
+    api_key_openai: str,
+    api_key_anthropic: str,
+    api_key_mistral: str,
+    api_key_openrouter: str,
+    # Current outputs to pass through
+    current_markdown: str,
+    current_gallery: List[str],
+    current_stats: str,
+    current_status_html: str,
+    current_history: str,
+    current_preview: str,
+) -> Tuple[str, gr.Gallery, str, str, str, str]:
+    if not auto_convert:
+        return (
+            current_markdown or "",
+            gr.Gallery(value=current_gallery or []),
+            current_stats or "",
+            current_status_html
+            or '<div class="status-indicator status-info">Ready to convert documents</div>',
+            current_history or "",
+            current_preview or "",
+        )
+
+    return await process_file_wrapper(
+        file_path,
+        main_model_id,
+        api_key_fallback,
+        custom_model,
+        description_mode,
+        extract_figures,
+        preset_instructions,
+        custom_instructions,
+        preserve_tables,
+        preserve_code,
+        preserve_links,
+        preserve_formatting,
+        use_temperature,
+        temperature,
+        page_range_enabled,
+        page_start,
+        page_end,
+        coord_inherit,
+        coord_model,
+        pars_inherit,
+        pars_model,
+        fdet_inherit,
+        fdet_model,
+        fext_inherit,
+        fext_model,
+        fpar_inherit,
+        fpar_model,
+        api_key_gemini,
+        api_key_openai,
+        api_key_anthropic,
+        api_key_mistral,
+        api_key_openrouter,
+    )
 
 
 async def compare_models_ui(
@@ -671,17 +712,20 @@ async def compare_models_ui(
     api_key_mistral: str,
     api_key_openrouter: str,
     progress: gr.Progress = gr.Progress(),
-) -> Tuple[Dict[str, str], str]:
+) -> Tuple[Dict[str, str], str, Dict[str, str], Any, Any]:
     """Compare outputs from multiple models concurrently."""
     if not file_path or not selected_models:
         return (
             {},
             '<div class="status-indicator status-error">❌ Please select a file and at least one model</div>',
+            {},
+            gr.update(choices=[], value=None),
+            gr.update(choices=[], value=None),
         )
 
     provider_api_keys = {
         "gemini": (api_key_gemini or "").strip(),
-        "gpt": (api_key_openai or "").strip(),
+        "openai": (api_key_openai or "").strip(),
         "claude": (api_key_anthropic or "").strip(),
         "mistral": (api_key_mistral or "").strip(),
         "openrouter": (api_key_openrouter or "").strip(),
@@ -689,8 +733,8 @@ async def compare_models_ui(
 
     async def convert_one(model_choice: str) -> Tuple[str, str]:
         model_id = model_id_from_choice(model_choice)
-        provider = get_provider_from_model(model_id)
-        api_key = provider_api_keys.get(provider) or api_key_fallback
+        provider = "openrouter"
+        api_key = provider_api_keys.get("openrouter") or api_key_fallback
         if not api_key:
             return model_id, f"❌ No API key for provider '{provider}'"
 
@@ -715,7 +759,12 @@ async def compare_models_ui(
         progress(done_count / total, desc=f"Completed {done_count}/{total}")
 
     status_html = '<div class="status-indicator status-success">✅ Model comparison complete</div>'
-    return results, status_html
+    choices = list(results.keys())
+    default_a = choices[0] if choices else None
+    default_b = choices[1] if len(choices) > 1 else default_a
+    dd_a = gr.update(choices=choices, value=default_a)
+    dd_b = gr.update(choices=choices, value=default_b)
+    return results, status_html, results, dd_a, dd_b
 
 
 def export_results(markdown: str, figures: List[str], format: str) -> str:
@@ -957,6 +1006,8 @@ def create_interface():
 
                             file_info = gr.Markdown("No file selected")
 
+                            auto_convert = gr.Checkbox(label="Auto-convert on upload", value=False)
+
                         # Model selection card
                         with gr.Group(elem_classes="card"):
                             gr.HTML('<div class="card-header"><h3>🤖 Model Selection</h3></div>')
@@ -1091,7 +1142,7 @@ def create_interface():
                             # Pipeline model overrides
                             with gr.Accordion("Pipeline Models (override)", open=False):
                                 gr.Markdown(
-                                    "Toggle 'Use same as Main' to reuse the main model. Otherwise pick a provider/model or type a custom model id."
+                                    "Toggle 'Use same as Main' to reuse the main model. Otherwise type the exact model id you want to use."
                                 )
 
                                 def toggle_visibility(inherit):
@@ -1113,160 +1164,75 @@ def create_interface():
                                     coord_inherit = gr.Checkbox(
                                         label="Use same as Main", value=True
                                     )
-                                    coord_provider = gr.Dropdown(
-                                        provider_list(),
-                                        value="Gemini",
-                                        label="Provider",
-                                        visible=False,
-                                    )
-                                    coord_model_choice = gr.Dropdown(
-                                        model_choices("Gemini"),
-                                        value=default_model_choice("Gemini"),
+                                    coord_model = gr.Textbox(
                                         label="Model",
-                                        visible=False,
-                                    )
-                                    coord_custom = gr.Textbox(
-                                        label="Custom (optional)",
                                         placeholder="provider/model-name",
                                         visible=False,
                                     )
                                 coord_inherit.change(
-                                    toggle_visibility,
+                                    lambda x: gr.update(visible=not x),
                                     inputs=[coord_inherit],
-                                    outputs=[coord_provider, coord_model_choice, coord_custom],
-                                )
-                                coord_provider.change(
-                                    update_model_choices,
-                                    inputs=[coord_provider],
-                                    outputs=[coord_model_choice],
+                                    outputs=[coord_model],
                                 )
 
                                 # Parsing
                                 gr.Markdown("#### Parsing Model")
                                 with gr.Row():
                                     pars_inherit = gr.Checkbox(label="Use same as Main", value=True)
-                                    pars_provider = gr.Dropdown(
-                                        provider_list(),
-                                        value="Gemini",
-                                        label="Provider",
-                                        visible=False,
-                                    )
-                                    pars_model_choice = gr.Dropdown(
-                                        model_choices("Gemini"),
-                                        value=default_model_choice("Gemini"),
+                                    pars_model = gr.Textbox(
                                         label="Model",
-                                        visible=False,
-                                    )
-                                    pars_custom = gr.Textbox(
-                                        label="Custom (optional)",
                                         placeholder="provider/model-name",
                                         visible=False,
                                     )
                                 pars_inherit.change(
-                                    toggle_visibility,
+                                    lambda x: gr.update(visible=not x),
                                     inputs=[pars_inherit],
-                                    outputs=[pars_provider, pars_model_choice, pars_custom],
-                                )
-                                pars_provider.change(
-                                    update_model_choices,
-                                    inputs=[pars_provider],
-                                    outputs=[pars_model_choice],
+                                    outputs=[pars_model],
                                 )
 
                                 # Figure Detector
                                 gr.Markdown("#### Figure Detector")
                                 with gr.Row():
                                     fdet_inherit = gr.Checkbox(label="Use same as Main", value=True)
-                                    fdet_provider = gr.Dropdown(
-                                        provider_list(),
-                                        value="Gemini",
-                                        label="Provider",
-                                        visible=False,
-                                    )
-                                    fdet_model_choice = gr.Dropdown(
-                                        model_choices("Gemini"),
-                                        value=default_model_choice("Gemini"),
+                                    fdet_model = gr.Textbox(
                                         label="Model",
-                                        visible=False,
-                                    )
-                                    fdet_custom = gr.Textbox(
-                                        label="Custom (optional)",
                                         placeholder="provider/model-name",
                                         visible=False,
                                     )
                                 fdet_inherit.change(
-                                    toggle_visibility,
+                                    lambda x: gr.update(visible=not x),
                                     inputs=[fdet_inherit],
-                                    outputs=[fdet_provider, fdet_model_choice, fdet_custom],
-                                )
-                                fdet_provider.change(
-                                    update_model_choices,
-                                    inputs=[fdet_provider],
-                                    outputs=[fdet_model_choice],
+                                    outputs=[fdet_model],
                                 )
 
                                 # Figure Extractor
                                 gr.Markdown("#### Figure Extractor")
                                 with gr.Row():
                                     fext_inherit = gr.Checkbox(label="Use same as Main", value=True)
-                                    fext_provider = gr.Dropdown(
-                                        provider_list(),
-                                        value="Gemini",
-                                        label="Provider",
-                                        visible=False,
-                                    )
-                                    fext_model_choice = gr.Dropdown(
-                                        model_choices("Gemini"),
-                                        value=default_model_choice("Gemini"),
+                                    fext_model = gr.Textbox(
                                         label="Model",
-                                        visible=False,
-                                    )
-                                    fext_custom = gr.Textbox(
-                                        label="Custom (optional)",
                                         placeholder="provider/model-name",
                                         visible=False,
                                     )
                                 fext_inherit.change(
-                                    toggle_visibility,
+                                    lambda x: gr.update(visible=not x),
                                     inputs=[fext_inherit],
-                                    outputs=[fext_provider, fext_model_choice, fext_custom],
-                                )
-                                fext_provider.change(
-                                    update_model_choices,
-                                    inputs=[fext_provider],
-                                    outputs=[fext_model_choice],
+                                    outputs=[fext_model],
                                 )
 
                                 # Figure Parser
                                 gr.Markdown("#### Figure Parser")
                                 with gr.Row():
                                     fpar_inherit = gr.Checkbox(label="Use same as Main", value=True)
-                                    fpar_provider = gr.Dropdown(
-                                        provider_list(),
-                                        value="Gemini",
-                                        label="Provider",
-                                        visible=False,
-                                    )
-                                    fpar_model_choice = gr.Dropdown(
-                                        model_choices("Gemini"),
-                                        value=default_model_choice("Gemini"),
+                                    fpar_model = gr.Textbox(
                                         label="Model",
-                                        visible=False,
-                                    )
-                                    fpar_custom = gr.Textbox(
-                                        label="Custom (optional)",
                                         placeholder="provider/model-name",
                                         visible=False,
                                     )
                                 fpar_inherit.change(
-                                    toggle_visibility,
+                                    lambda x: gr.update(visible=not x),
                                     inputs=[fpar_inherit],
-                                    outputs=[fpar_provider, fpar_model_choice, fpar_custom],
-                                )
-                                fpar_provider.change(
-                                    update_model_choices,
-                                    inputs=[fpar_provider],
-                                    outputs=[fpar_model_choice],
+                                    outputs=[fpar_model],
                                 )
 
                             # Advanced options
@@ -1342,6 +1308,10 @@ def create_interface():
                                     )
                                     export_btn = gr.Button("💾 Export", size="sm")
                                     export_file = gr.File(label="Download", visible=False)
+                                    clear_outputs_btn = gr.Button("🧹 Clear Outputs", size="sm")
+
+                            with gr.Tab("👁️ Rendered Preview"):
+                                markdown_preview = gr.Markdown(label="Rendered Markdown Preview")
 
                             with gr.Tab("🖼️ Extracted Figures"):
                                 figures_gallery = gr.Gallery(
@@ -1350,6 +1320,7 @@ def create_interface():
                                     height=600,
                                     object_fit="contain",
                                 )
+                                refresh_figures_btn = gr.Button("🔄 Refresh Figures", size="sm")
 
                             with gr.Tab("📊 Statistics"):
                                 stats_display = gr.Markdown("No statistics available yet")
@@ -1391,6 +1362,22 @@ def create_interface():
                             value='<div class="status-indicator status-info">Select models to compare</div>'
                         )
                         compare_results_json = gr.JSON(label="Comparison Results")
+
+                        # Enhanced viewing & diff
+                        compare_results_state = gr.State({})
+                        gr.Markdown("#### Side-by-side View")
+                        with gr.Row():
+                            model_a_select = gr.Dropdown(label="Model A", choices=[])
+                            model_b_select = gr.Dropdown(label="Model B", choices=[])
+                        with gr.Row():
+                            model_a_text = gr.Textbox(label="Model A Output", lines=16)
+                            model_b_text = gr.Textbox(label="Model B Output", lines=16)
+                        with gr.Row():
+                            show_diff_btn = gr.Button("🧮 Show Diff", size="sm")
+                            swap_btn = gr.Button("↔️ Swap A/B", size="sm")
+                        diff_output = gr.Textbox(
+                            label="Unified Diff", lines=18, show_copy_button=True
+                        )
 
             # ===== GUIDE TAB =====
             with gr.Tab("📚 Guide", elem_id="guide-tab"):
@@ -1475,6 +1462,62 @@ def create_interface():
             outputs=[file_preview, file_info, status_output],
         )
 
+        # Auto-convert on upload
+        file_input.change(
+            fn=maybe_auto_process,
+            inputs=[
+                file_input,
+                auto_convert,
+                # process_file_wrapper inputs
+                main_model_state,
+                api_key_input,
+                custom_model_input,
+                description_mode,
+                extract_figures,
+                preset_instructions,
+                custom_instructions,
+                preserve_tables,
+                preserve_code,
+                preserve_links,
+                preserve_formatting,
+                use_temperature,
+                temperature,
+                page_range_enabled,
+                page_start,
+                page_end,
+                coord_inherit,
+                coord_model,
+                pars_inherit,
+                pars_model,
+                fdet_inherit,
+                fdet_model,
+                fext_inherit,
+                fext_model,
+                fpar_inherit,
+                fpar_model,
+                api_key_gemini,
+                api_key_openai,
+                api_key_anthropic,
+                api_key_mistral,
+                api_key_openrouter,
+                # current outputs to passthrough
+                markdown_output,
+                figures_gallery,
+                stats_display,
+                status_output,
+                history_display,
+                markdown_preview,
+            ],
+            outputs=[
+                markdown_output,
+                figures_gallery,
+                stats_display,
+                status_output,
+                history_display,
+                markdown_preview,
+            ],
+        )
+
         # Load sample handler
         def handle_sample_load(sample_name: str):
             if not sample_name:
@@ -1505,10 +1548,64 @@ def create_interface():
                 status_html,
             )
 
-        load_sample_btn.click(
+        sample_evt = load_sample_btn.click(
             fn=handle_sample_load,
             inputs=[sample_choice],
             outputs=[file_input, file_preview, file_info, status_output],
+        )
+
+        # Optionally auto-convert after loading sample
+        sample_evt.then(
+            fn=maybe_auto_process,
+            inputs=[
+                file_input,
+                auto_convert,
+                main_model_state,
+                api_key_input,
+                custom_model_input,
+                description_mode,
+                extract_figures,
+                preset_instructions,
+                custom_instructions,
+                preserve_tables,
+                preserve_code,
+                preserve_links,
+                preserve_formatting,
+                use_temperature,
+                temperature,
+                page_range_enabled,
+                page_start,
+                page_end,
+                coord_inherit,
+                coord_model,
+                pars_inherit,
+                pars_model,
+                fdet_inherit,
+                fdet_model,
+                fext_inherit,
+                fext_model,
+                fpar_inherit,
+                fpar_model,
+                api_key_gemini,
+                api_key_openai,
+                api_key_anthropic,
+                api_key_mistral,
+                api_key_openrouter,
+                markdown_output,
+                figures_gallery,
+                stats_display,
+                status_output,
+                history_display,
+                markdown_preview,
+            ],
+            outputs=[
+                markdown_output,
+                figures_gallery,
+                stats_display,
+                status_output,
+                history_display,
+                markdown_preview,
+            ],
         )
 
         # Process button - run async wrapper
@@ -1534,25 +1631,15 @@ def create_interface():
                 page_end,
                 # Pipeline overrides
                 coord_inherit,
-                coord_provider,
-                coord_model_choice,
-                coord_custom,
+                coord_model,
                 pars_inherit,
-                pars_provider,
-                pars_model_choice,
-                pars_custom,
+                pars_model,
                 fdet_inherit,
-                fdet_provider,
-                fdet_model_choice,
-                fdet_custom,
+                fdet_model,
                 fext_inherit,
-                fext_provider,
-                fext_model_choice,
-                fext_custom,
+                fext_model,
                 fpar_inherit,
-                fpar_provider,
-                fpar_model_choice,
-                fpar_custom,
+                fpar_model,
                 # Per-provider API keys
                 api_key_gemini,
                 api_key_openai,
@@ -1566,6 +1653,7 @@ def create_interface():
                 stats_display,
                 status_output,
                 history_display,
+                markdown_preview,
             ],
         )
 
@@ -1576,10 +1664,47 @@ def create_interface():
                 return gr.File(value=file_path, visible=True)
             return gr.File(visible=False)
 
+        def refresh_figures():
+            images_dir = Path("images")
+            if images_dir.exists():
+                files = sorted(str(p) for p in images_dir.glob("*.png"))
+                return gr.Gallery(value=files)
+            return gr.Gallery(value=[])
+
         export_btn.click(
             fn=handle_export,
             inputs=[markdown_output, figures_gallery, export_format],
             outputs=[export_file],
+        )
+
+        refresh_figures_btn.click(
+            fn=refresh_figures,
+            inputs=[],
+            outputs=[figures_gallery],
+        )
+
+        # Clear outputs
+        def clear_outputs():
+            return (
+                "",
+                gr.Gallery(value=[]),
+                "No statistics available yet",
+                '<div class="status-indicator status-info">Ready to convert documents</div>',
+                session_state.get_history_display(),
+                "",
+            )
+
+        clear_outputs_btn.click(
+            fn=clear_outputs,
+            inputs=[],
+            outputs=[
+                markdown_output,
+                figures_gallery,
+                stats_display,
+                status_output,
+                history_display,
+                markdown_preview,
+            ],
         )
 
         # Clear history
@@ -1590,7 +1715,7 @@ def create_interface():
         clear_history_btn.click(fn=clear_history, outputs=[status_output, history_display])
 
         # Compare tab run
-        compare_btn.click(
+        compare_evt = compare_btn.click(
             fn=compare_models_ui,
             inputs=[
                 compare_file_input,
@@ -1602,7 +1727,68 @@ def create_interface():
                 api_key_mistral,
                 api_key_openrouter,
             ],
-            outputs=[compare_results_json, compare_status_html],
+            outputs=[
+                compare_results_json,
+                compare_status_html,
+                compare_results_state,
+                model_a_select,
+                model_b_select,
+            ],
+        )
+
+        def show_compare_texts(results: Dict[str, str], a: str, b: str) -> Tuple[str, str]:
+            if not isinstance(results, dict):
+                return "", ""
+            return results.get(a, ""), results.get(b, "")
+
+        def compute_unified_diff(results: Dict[str, str], a: str, b: str) -> str:
+            if not isinstance(results, dict):
+                return ""
+            a_text = results.get(a, "")
+            b_text = results.get(b, "")
+            a_lines = a_text.splitlines(keepends=True)
+            b_lines = b_text.splitlines(keepends=True)
+            diff_iter = difflib.unified_diff(
+                a_lines,
+                b_lines,
+                fromfile=f"A: {a}",
+                tofile=f"B: {b}",
+                lineterm="",
+            )
+            diff_text = "".join(diff_iter)
+            return diff_text or "No differences."
+
+        model_a_select.change(
+            fn=show_compare_texts,
+            inputs=[compare_results_state, model_a_select, model_b_select],
+            outputs=[model_a_text, model_b_text],
+        )
+        model_b_select.change(
+            fn=show_compare_texts,
+            inputs=[compare_results_state, model_a_select, model_b_select],
+            outputs=[model_a_text, model_b_text],
+        )
+
+        show_diff_btn.click(
+            fn=compute_unified_diff,
+            inputs=[compare_results_state, model_a_select, model_b_select],
+            outputs=[diff_output],
+        )
+
+        def swap_models(a: str, b: str) -> Tuple[str, str]:
+            return b, a
+
+        swap_btn.click(
+            fn=swap_models,
+            inputs=[model_a_select, model_b_select],
+            outputs=[model_a_select, model_b_select],
+        )
+
+        # Populate side-by-side outputs after comparison defaults are set
+        compare_evt.then(
+            fn=show_compare_texts,
+            inputs=[compare_results_state, model_a_select, model_b_select],
+            outputs=[model_a_text, model_b_text],
         )
 
     return demo
@@ -1611,6 +1797,7 @@ def create_interface():
 def main():
     """Launch the enhanced Gradio interface."""
     demo = create_interface()
+    demo.queue(default_concurrency_limit=4, max_size=32)
     demo.launch(
         server_name="0.0.0.0",
         server_port=7861,
