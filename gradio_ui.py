@@ -2,13 +2,12 @@
 Advanced Gradio UI for MarkThat - Showcasing Full Capabilities.
 
 This enhanced interface demonstrates all features of the MarkThat library
-with improved UX, real-time feedback, and advanced functionality.
+with improved UX, real-time feedback, and simplified inputs.
 
 Key upgrades:
-- Every pipeline step has an editable model (Main, Coordinate, Parsing, Figure Detector, Extractor, Parser)
-- "Use same as Main" toggle per step
-- Per-provider API keys (with env auto-fill) + fallback default key
-- Correct active model tracking across provider tabs (tracks last-changed dropdown)
+- Single deduplicated model dropdown across providers
+- One OpenRouter API key (auto-filled via env)
+- Optional per-step model overrides with "Use same as Main" toggles
 - Fully async processing (no nested asyncio.run)
 """
 
@@ -24,9 +23,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import gradio as gr
+from dotenv import load_dotenv
 from PIL import Image
 
 from markthat import MarkThat
+
+load_dotenv()
 
 # Enhanced model presets with descriptions
 MODEL_INFO = {
@@ -111,6 +113,7 @@ def default_model_choice(provider: str) -> str:
     return f"{m} - {d}"
 
 
+# Load API keys from environment variables (auto-populated in UI)
 ENV_DEFAULT_KEYS = {
     "Gemini": os.getenv("GEMINI_API_KEY", ""),
     "OpenAI": os.getenv("OPENAI_API_KEY", ""),
@@ -311,7 +314,6 @@ def preview_file(file_path: str) -> Tuple[Any, str, str]:
 async def process_file_async(
     file_path: str,
     main_model: str,
-    api_key_main: str,
     description_mode: bool,
     extract_figures: bool,
     instructions: str,
@@ -320,15 +322,15 @@ async def process_file_async(
     step_models: Dict[
         str, Optional[str]
     ],  # keys: coordinate_model, parsing_model, figure_detector_model, figure_extractor_model, figure_parser_model
-    provider_api_keys: Dict[str, str],  # keys: "gemini", "gpt", "claude", "mistral", "openrouter"
+    provider_api_keys: Dict[str, str],  # keys: "openrouter"
     progress: gr.Progress,
 ) -> Tuple[str, List[str], Dict[str, Any], str]:
     """Process file with advanced options and detailed feedback, with per-step model overrides."""
     get_provider_from_model(main_model)
 
     def pick_key_for(model_name: Optional[str]) -> str:
-        # All models use OpenRouter; prefer its key, else fallback
-        return provider_api_keys.get("openrouter") or api_key_main
+        # All models use OpenRouter; single key
+        return provider_api_keys.get("openrouter", "")
 
     progress(0.1, desc="🔧 Initializing MarkThat client...")
 
@@ -436,9 +438,10 @@ async def process_file_async(
 
 async def process_file_wrapper(
     file_path: Optional[str],
-    main_model_id: str,  # from hidden state bound to active provider tab dropdown
-    api_key_fallback: str,  # the single API key input (used as fallback)
-    custom_model: str,
+    main_model_use_default: bool,  # whether to use default model selection
+    main_model_dropdown: str,  # selected model from dropdown
+    main_model_textbox: str,  # custom model input
+    api_key_openrouter: str,  # single API key
     description_mode: bool,
     extract_figures: bool,
     preset_instructions: str,
@@ -467,12 +470,6 @@ async def process_file_wrapper(
     # Pipeline: Figure Parser
     fpar_inherit: bool,
     fpar_model: str,
-    # Per-provider API keys
-    api_key_gemini: str,
-    api_key_openai: str,
-    api_key_anthropic: str,
-    api_key_mistral: str,
-    api_key_openrouter: str,
     progress: gr.Progress = gr.Progress(),
 ) -> Tuple[str, gr.Gallery, str, str, str, str]:
     """Enhanced wrapper with pipeline model overrides and per-provider keys."""
@@ -487,8 +484,12 @@ async def process_file_wrapper(
             "",
         )
 
-    # Resolve main model (custom > active tab selection)
-    main_model = custom_model.strip() if custom_model else (main_model_id or "").strip()
+    # Resolve main model
+    if main_model_use_default:
+        main_model = model_id_from_choice(main_model_dropdown or "")
+    else:
+        main_model = (main_model_textbox or "").strip()
+
     if not main_model:
         return (
             "",
@@ -499,17 +500,22 @@ async def process_file_wrapper(
             "",
         )
 
-    # Per-provider keys map (lowercase keys to match get_provider_from_model)
+    # Single provider key map - fallback to environment variable if textbox is empty
+    textbox_key = (api_key_openrouter or "").strip()
+    env_key = ENV_DEFAULT_KEYS.get("OpenRouter", "").strip()
+
+    # Use textbox value if provided, otherwise fall back to environment variable
+    final_key = textbox_key or env_key
+
     provider_api_keys = {
-        "openrouter": (api_key_openrouter or "").strip(),
+        "openrouter": final_key,
     }
-    # Fallback check
-    if not any(provider_api_keys.values()) and not api_key_fallback:
+    if not provider_api_keys["openrouter"]:
         return (
             "",
             gr.Gallery(value=[]),
             "",
-            '<div class="status-indicator status-error">❌ Please provide at least one API key</div>',
+            '<div class="status-indicator status-error">❌ Please provide your OpenRouter API key (set OPENROUTER_API_KEY in .env or enter in the textbox)</div>',
             session_state.get_history_display(),
             "",
         )
@@ -566,7 +572,6 @@ async def process_file_wrapper(
         markdown, figures, stats, status_msg = await process_file_async(
             file_path=file_path,
             main_model=main_model,
-            api_key_main=api_key_fallback,
             description_mode=description_mode,
             extract_figures=extract_figures,
             instructions=instructions,
@@ -615,10 +620,11 @@ async def process_file_wrapper(
 async def maybe_auto_process(
     file_path: Optional[str],
     auto_convert: bool,
-    # Mirror process_file_wrapper inputs
-    main_model_id: str,
-    api_key_fallback: str,
-    custom_model: str,
+    # Mirror simplified process_file_wrapper inputs
+    main_model_use_default: bool,
+    main_model_dropdown: str,
+    main_model_textbox: str,
+    api_key_openrouter: str,
     description_mode: bool,
     extract_figures: bool,
     preset_instructions: str,
@@ -642,11 +648,6 @@ async def maybe_auto_process(
     fext_model: str,
     fpar_inherit: bool,
     fpar_model: str,
-    api_key_gemini: str,
-    api_key_openai: str,
-    api_key_anthropic: str,
-    api_key_mistral: str,
-    api_key_openrouter: str,
     # Current outputs to pass through
     current_markdown: str,
     current_gallery: List[str],
@@ -668,9 +669,10 @@ async def maybe_auto_process(
 
     return await process_file_wrapper(
         file_path,
-        main_model_id,
-        api_key_fallback,
-        custom_model,
+        main_model_use_default,
+        main_model_dropdown,
+        main_model_textbox,
+        api_key_openrouter,
         description_mode,
         extract_figures,
         preset_instructions,
@@ -694,22 +696,12 @@ async def maybe_auto_process(
         fext_model,
         fpar_inherit,
         fpar_model,
-        api_key_gemini,
-        api_key_openai,
-        api_key_anthropic,
-        api_key_mistral,
-        api_key_openrouter,
     )
 
 
 async def compare_models_ui(
     file_path: str,
     selected_models: List[str],
-    api_key_fallback: str,
-    api_key_gemini: str,
-    api_key_openai: str,
-    api_key_anthropic: str,
-    api_key_mistral: str,
     api_key_openrouter: str,
     progress: gr.Progress = gr.Progress(),
 ) -> Tuple[Dict[str, str], str, Dict[str, str], Any, Any]:
@@ -724,17 +716,13 @@ async def compare_models_ui(
         )
 
     provider_api_keys = {
-        "gemini": (api_key_gemini or "").strip(),
-        "openai": (api_key_openai or "").strip(),
-        "claude": (api_key_anthropic or "").strip(),
-        "mistral": (api_key_mistral or "").strip(),
         "openrouter": (api_key_openrouter or "").strip(),
     }
 
     async def convert_one(model_choice: str) -> Tuple[str, str]:
         model_id = model_id_from_choice(model_choice)
         provider = "openrouter"
-        api_key = provider_api_keys.get("openrouter") or api_key_fallback
+        api_key = provider_api_keys.get("openrouter")
         if not api_key:
             return model_id, f"❌ No API key for provider '{provider}'"
 
@@ -1012,88 +1000,80 @@ def create_interface():
                         with gr.Group(elem_classes="card"):
                             gr.HTML('<div class="card-header"><h3>🤖 Model Selection</h3></div>')
 
-                            # Track the last-changed dropdown for main model id
-                            # Initialize with first Gemini model
-                            default_main_model = list(MODEL_INFO["Gemini"]["models"].keys())[0]
-                            main_model_state = gr.State(value=default_main_model)
+                            # Main model selection (editable)
+                            all_model_choices = []
+                            for provider, info in MODEL_INFO.items():
+                                for m, d in info["models"].items():
+                                    all_model_choices.append(f"{m} - {d}")
+                            default_choice = all_model_choices[0] if all_model_choices else ""
 
-                            provider_tabs = gr.Tabs()
-                            model_dropdowns = {}
-                            model_details_mds = {}
-
-                            with provider_tabs:
-                                for provider, info in MODEL_INFO.items():
-                                    with gr.Tab(f"{info['icon']} {provider}"):
-                                        gr.Markdown(f"*{info['description']}*")
-                                        dd = gr.Dropdown(
-                                            choices=[
-                                                f"{m} - {d}" for m, d in info["models"].items()
-                                            ],
-                                            value=list(info["models"].items())[0][0]
-                                            + " - "
-                                            + list(info["models"].values())[0],
-                                            label=f"{provider} - Select Model",
-                                            interactive=True,
-                                        )
-                                        detail_md = gr.Markdown("", visible=True)
-                                        # update both active model state and details
-                                        dd.change(
-                                            lambda x: (
-                                                model_id_from_choice(x),
-                                                update_model_details(x),
-                                            ),
-                                            inputs=[dd],
-                                            outputs=[main_model_state, detail_md],
-                                        )
-                                        model_dropdowns[provider] = dd
-                                        model_details_mds[provider] = detail_md
-
-                            custom_model_input = gr.Textbox(
-                                label="Or use custom model for Main step",
-                                placeholder="your-custom/model-name",
-                                interactive=True,
+                            # Main model toggle
+                            main_model_use_default = gr.Checkbox(
+                                label="Use default model selection", value=True
                             )
 
-                            # API keys (fallback + per-provider)
-                            with gr.Accordion("API Keys", open=False):
-                                api_key_input = gr.Textbox(
-                                    label="Default API Key (fallback)",
-                                    placeholder="Used if a provider-specific key is missing",
-                                    type="password",
-                                    interactive=True,
-                                )
-                                with gr.Row():
-                                    api_key_gemini = gr.Textbox(
-                                        label="Gemini API Key",
-                                        placeholder="GEMINI_API_KEY",
-                                        value=ENV_DEFAULT_KEYS["Gemini"],
-                                        type="password",
+                            main_model_dropdown = gr.Dropdown(
+                                choices=all_model_choices,
+                                value=default_choice,
+                                label="Select Model",
+                                interactive=True,
+                                visible=True,
+                            )
+
+                            main_model_textbox = gr.Textbox(
+                                label="Custom Main Model",
+                                placeholder="your-custom/model-name",
+                                interactive=True,
+                                visible=False,
+                            )
+
+                            model_detail_md = gr.Markdown(
+                                update_model_details(default_choice) if default_choice else ""
+                            )
+
+                            # Toggle between dropdown and textbox
+                            def toggle_main_model(use_default):
+                                if use_default:
+                                    return (
+                                        gr.update(visible=True),
+                                        gr.update(visible=False),
+                                        update_model_details(default_choice),
                                     )
-                                    api_key_openai = gr.Textbox(
-                                        label="OpenAI API Key",
-                                        placeholder="OPENAI_API_KEY",
-                                        value=ENV_DEFAULT_KEYS["OpenAI"],
-                                        type="password",
+                                else:
+                                    return (
+                                        gr.update(visible=False),
+                                        gr.update(visible=True),
+                                        "Enter your custom model name above",
                                     )
-                                with gr.Row():
-                                    api_key_anthropic = gr.Textbox(
-                                        label="Anthropic API Key",
-                                        placeholder="ANTHROPIC_API_KEY",
-                                        value=ENV_DEFAULT_KEYS["Anthropic"],
-                                        type="password",
-                                    )
-                                    api_key_mistral = gr.Textbox(
-                                        label="Mistral API Key",
-                                        placeholder="MISTRAL_API_KEY",
-                                        value=ENV_DEFAULT_KEYS["Mistral"],
-                                        type="password",
-                                    )
+
+                            main_model_use_default.change(
+                                fn=toggle_main_model,
+                                inputs=[main_model_use_default],
+                                outputs=[main_model_dropdown, main_model_textbox, model_detail_md],
+                            )
+
+                            main_model_dropdown.change(
+                                fn=update_model_details,
+                                inputs=[main_model_dropdown],
+                                outputs=[model_detail_md],
+                            )
+
+                            # Single API key
+                            with gr.Accordion("API Key", open=False):
                                 api_key_openrouter = gr.Textbox(
                                     label="OpenRouter API Key",
                                     placeholder="OPENROUTER_API_KEY",
                                     value=ENV_DEFAULT_KEYS["OpenRouter"],
                                     type="password",
                                 )
+                                if ENV_DEFAULT_KEYS["OpenRouter"]:
+                                    gr.Markdown(
+                                        "*✅ API key loaded from OPENROUTER_API_KEY environment variable*"
+                                    )
+                                else:
+                                    gr.Markdown(
+                                        "*⚠️ Set OPENROUTER_API_KEY in your .env file or enter it above*"
+                                    )
 
                         # Processing options card
                         with gr.Group(elem_classes="card"):
@@ -1469,9 +1449,10 @@ def create_interface():
                 file_input,
                 auto_convert,
                 # process_file_wrapper inputs
-                main_model_state,
-                api_key_input,
-                custom_model_input,
+                main_model_use_default,
+                main_model_dropdown,
+                main_model_textbox,
+                api_key_openrouter,
                 description_mode,
                 extract_figures,
                 preset_instructions,
@@ -1495,11 +1476,6 @@ def create_interface():
                 fext_model,
                 fpar_inherit,
                 fpar_model,
-                api_key_gemini,
-                api_key_openai,
-                api_key_anthropic,
-                api_key_mistral,
-                api_key_openrouter,
                 # current outputs to passthrough
                 markdown_output,
                 figures_gallery,
@@ -1560,9 +1536,10 @@ def create_interface():
             inputs=[
                 file_input,
                 auto_convert,
-                main_model_state,
-                api_key_input,
-                custom_model_input,
+                main_model_use_default,
+                main_model_dropdown,
+                main_model_textbox,
+                api_key_openrouter,
                 description_mode,
                 extract_figures,
                 preset_instructions,
@@ -1586,11 +1563,6 @@ def create_interface():
                 fext_model,
                 fpar_inherit,
                 fpar_model,
-                api_key_gemini,
-                api_key_openai,
-                api_key_anthropic,
-                api_key_mistral,
-                api_key_openrouter,
                 markdown_output,
                 figures_gallery,
                 stats_display,
@@ -1613,9 +1585,10 @@ def create_interface():
             fn=process_file_wrapper,
             inputs=[
                 file_input,
-                main_model_state,  # active main model id
-                api_key_input,  # default API key (fallback)
-                custom_model_input,
+                main_model_use_default,  # use default model selection
+                main_model_dropdown,  # selected model from dropdown
+                main_model_textbox,  # custom model input
+                api_key_openrouter,  # OpenRouter API key
                 description_mode,
                 extract_figures,
                 preset_instructions,
@@ -1640,12 +1613,6 @@ def create_interface():
                 fext_model,
                 fpar_inherit,
                 fpar_model,
-                # Per-provider API keys
-                api_key_gemini,
-                api_key_openai,
-                api_key_anthropic,
-                api_key_mistral,
-                api_key_openrouter,
             ],
             outputs=[
                 markdown_output,
@@ -1720,11 +1687,6 @@ def create_interface():
             inputs=[
                 compare_file_input,
                 compare_models_group,
-                api_key_input,
-                api_key_gemini,
-                api_key_openai,
-                api_key_anthropic,
-                api_key_mistral,
                 api_key_openrouter,
             ],
             outputs=[
