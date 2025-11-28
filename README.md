@@ -5,6 +5,7 @@
 [![PyPI version](https://badge.fury.io/py/markthat.svg)](https://badge.fury.io/py/markthat)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
+
 A  Python library for converting images and PDFs to Markdown or generating rich image descriptions using state-of-the-art multimodal LLMs.
 
 ## 🚀 Features
