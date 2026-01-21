@@ -786,170 +786,165 @@ def export_results(markdown: str, figures: List[str], format: str) -> str:
     return None
 
 
+# Custom CSS for professional appearance (module-level for use in launch())
+CUSTOM_CSS = """
+/* Main container styling */
+.gradio-container {
+    max-width: 1400px !important;
+    margin: auto !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
+}
+
+/* Header styling */
+.main-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 3rem 2rem;
+    border-radius: 16px;
+    text-align: center;
+    margin-bottom: 2rem;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.main-header h1 {
+    font-size: 3rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+}
+
+.main-header p {
+    font-size: 1.2rem;
+    opacity: 0.95;
+}
+
+/* Card styling */
+.card {
+    background: white;
+    border-radius: 12px;
+    padding: 1.5rem;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    margin-bottom: 1rem;
+    border: 1px solid #e5e7eb;
+}
+
+.card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid #f3f4f6;
+}
+
+.card-header h3 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #1f2937;
+}
+
+/* Status indicators */
+.status-indicator {
+    padding: 0.75rem 1rem;
+    border-radius: 8px;
+    margin: 0.5rem 0;
+    font-weight: 500;
+}
+
+.status-success {
+    background-color: #d1fae5;
+    color: #065f46;
+    border: 1px solid #6ee7b7;
+}
+
+.status-error {
+    background-color: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.status-info {
+    background-color: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+}
+
+/* Button styling */
+.primary-button {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    border: none !important;
+    font-weight: 600 !important;
+    font-size: 1.1rem !important;
+    padding: 0.75rem 2rem !important;
+    transition: transform 0.2s !important;
+}
+
+.primary-button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
+}
+
+/* Tab styling */
+.tabs {
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* Model grid */
+.model-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.75rem;
+    margin-top: 1rem;
+}
+
+.model-card {
+    padding: 0.75rem;
+    border: 2px solid #e5e7eb;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.model-card:hover {
+    border-color: #667eea;
+    background-color: #f9fafb;
+}
+
+/* Stats display */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 1rem;
+    margin-top: 1rem;
+}
+
+.stat-item {
+    background: #f9fafb;
+    padding: 1rem;
+    border-radius: 8px;
+    text-align: center;
+}
+
+.stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #667eea;
+}
+
+.stat-label {
+    font-size: 0.875rem;
+    color: #6b7280;
+    margin-top: 0.25rem;
+}
+"""
+
+
 def create_interface():
     """Create the enhanced Gradio interface."""
 
-    # Custom CSS for professional appearance
-    custom_css = """
-    /* Main container styling */
-    .gradio-container {
-        max-width: 1400px !important;
-        margin: auto !important;
-        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
-    }
-    
-    /* Header styling */
-    .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 3rem 2rem;
-        border-radius: 16px;
-        text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-    
-    .main-header h1 {
-        font-size: 3rem;
-        font-weight: 700;
-        margin-bottom: 0.5rem;
-    }
-    
-    .main-header p {
-        font-size: 1.2rem;
-        opacity: 0.95;
-    }
-    
-    /* Card styling */
-    .card {
-        background: white;
-        border-radius: 12px;
-        padding: 1.5rem;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-        margin-bottom: 1rem;
-        border: 1px solid #e5e7eb;
-    }
-    
-    .card-header {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
-        padding-bottom: 0.75rem;
-        border-bottom: 2px solid #f3f4f6;
-    }
-    
-    .card-header h3 {
-        margin: 0;
-        font-size: 1.25rem;
-        font-weight: 600;
-        color: #1f2937;
-    }
-    
-    /* Status indicators */
-    .status-indicator {
-        padding: 0.75rem 1rem;
-        border-radius: 8px;
-        margin: 0.5rem 0;
-        font-weight: 500;
-    }
-    
-    .status-success {
-        background-color: #d1fae5;
-        color: #065f46;
-        border: 1px solid #6ee7b7;
-    }
-    
-    .status-error {
-        background-color: #fee2e2;
-        color: #991b1b;
-        border: 1px solid #fca5a5;
-    }
-    
-    .status-info {
-        background-color: #dbeafe;
-        color: #1e40af;
-        border: 1px solid #93c5fd;
-    }
-    
-    /* Button styling */
-    .primary-button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        border: none !important;
-        font-weight: 600 !important;
-        font-size: 1.1rem !important;
-        padding: 0.75rem 2rem !important;
-        transition: transform 0.2s !important;
-    }
-    
-    .primary-button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
-    }
-    
-    /* Tab styling */
-    .tabs {
-        border-radius: 12px;
-        overflow: hidden;
-    }
-    
-    /* Model grid */
-    .model-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 0.75rem;
-        margin-top: 1rem;
-    }
-    
-    .model-card {
-        padding: 0.75rem;
-        border: 2px solid #e5e7eb;
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.2s;
-    }
-    
-    .model-card:hover {
-        border-color: #667eea;
-        background-color: #f9fafb;
-    }
-    
-    /* Stats display */
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-        gap: 1rem;
-        margin-top: 1rem;
-    }
-    
-    .stat-item {
-        background: #f9fafb;
-        padding: 1rem;
-        border-radius: 8px;
-        text-align: center;
-    }
-    
-    .stat-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #667eea;
-    }
-    
-    .stat-label {
-        font-size: 0.875rem;
-        color: #6b7280;
-        margin-top: 0.25rem;
-    }
-    """
-
     with gr.Blocks(
         title="MarkThat - Advanced Document AI Converter",
-        theme=gr.themes.Soft(
-            primary_hue="indigo",
-            secondary_hue="purple",
-            neutral_hue="gray",
-        ),
-        css=custom_css,
     ) as demo:
 
         # Header
@@ -1271,7 +1266,6 @@ def create_interface():
                                     label="Generated Markdown",
                                     lines=25,
                                     max_lines=40,
-                                    show_copy_button=True,
                                     interactive=False,
                                 )
 
@@ -1356,7 +1350,7 @@ def create_interface():
                             show_diff_btn = gr.Button("🧮 Show Diff", size="sm")
                             swap_btn = gr.Button("↔️ Swap A/B", size="sm")
                         diff_output = gr.Textbox(
-                            label="Unified Diff", lines=18, show_copy_button=True
+                            label="Unified Diff", lines=18
                         )
 
             # ===== GUIDE TAB =====
@@ -1766,7 +1760,12 @@ def main():
         share=False,
         debug=False,
         show_error=True,
-        show_api=False,
+        theme=gr.themes.Soft(
+            primary_hue="indigo",
+            secondary_hue="purple",
+            neutral_hue="gray",
+        ),
+        css=CUSTOM_CSS,
     )
 
 
